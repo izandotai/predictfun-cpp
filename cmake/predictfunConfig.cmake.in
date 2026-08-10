@@ -1,4 +1,18 @@
 @PACKAGE_INIT@
 
+include(CMakeFindDependencyMacro)
+find_dependency(OpenSSL)
+if(NOT TARGET Boost::beast OR NOT TARGET Boost::asio)
+    find_dependency(Boost 1.87 CONFIG COMPONENTS beast asio)
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/predictfunTargets.cmake")
+
+# The source build uses a pinned FetchContent Boost tree.  Attach Boost only
+# after importing our installed targets so the export remains independent of
+# FetchContent's private target names while consumers still inherit the public
+# header dependency.
+set_property(TARGET predictfun::net APPEND PROPERTY
+    INTERFACE_LINK_LIBRARIES Boost::beast Boost::asio
+)
 check_required_components(predictfun)

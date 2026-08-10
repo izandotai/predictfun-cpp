@@ -207,6 +207,91 @@ void test_unknown_top_level_status() {
         predictfun::MarketStatus::unknown);
 }
 
+void test_category_and_timeseries_responses() {
+  constexpr auto category_json = R"({
+    "success": true,
+    "data": {
+      "id": 8,
+      "slug": "crypto",
+      "title": "Crypto",
+      "shortTitle": "Crypto",
+      "description": "Digital asset markets",
+      "isNegRisk": false,
+      "isYieldBearing": false,
+      "isVisible": true,
+      "status": "OPEN",
+      "markets": []
+    }
+  })";
+  auto category = predictfun::codec::decode_category_response(category_json);
+  CHECK(category);
+  if (category) {
+    CHECK(category.value().id == 8U);
+    CHECK(category.value().slug == "crypto");
+    CHECK(category.value().is_visible);
+    CHECK(category.value().status.value == predictfun::CategoryStatus::open);
+  }
+
+  constexpr auto categories_json = R"({
+    "success": true,
+    "cursor": "next",
+    "data": [{
+      "id": 8,
+      "slug": "crypto",
+      "title": "Crypto",
+      "isNegRisk": false,
+      "isYieldBearing": false,
+      "isVisible": true,
+      "status": "FUTURE_STATUS"
+    }]
+  })";
+  auto categories =
+      predictfun::codec::decode_categories_response(categories_json);
+  CHECK(categories);
+  if (categories) {
+    CHECK(categories.value().categories.size() == 1U);
+    CHECK(categories.value().categories[0].status.value ==
+          predictfun::CategoryStatus::unknown);
+    CHECK(categories.value().categories[0].status.raw == "FUTURE_STATUS");
+  }
+
+  constexpr auto timeseries_json = R"({
+    "success": true,
+    "cursor": "more",
+    "data": {
+      "resolution": "1m",
+      "series": [
+        {"x": 1780000000000, "y": "0.5125"},
+        {"x": 1780000060000, "y": 0.53}
+      ]
+    }
+  })";
+  auto timeseries =
+      predictfun::codec::decode_timeseries_response(timeseries_json);
+  CHECK(timeseries);
+  if (timeseries) {
+    CHECK(timeseries.value().resolution == "1m");
+    CHECK(timeseries.value().points.size() == 2U);
+    CHECK(timeseries.value().points[0].timestamp_ms == 1780000000000LL);
+    CHECK(timeseries.value().points[0].value.to_string() == "0.5125");
+  }
+
+  constexpr auto latest_json =
+      R"({"success":true,"data":{"x":1780000060000,"y":"0.53"}})";
+  auto latest =
+      predictfun::codec::decode_latest_timeseries_response(latest_json);
+  CHECK(latest);
+  if (latest)
+    CHECK(latest.value().value.to_string() == "0.53");
+
+  predictfun::codec::DecodeLimits limits;
+  limits.max_timeseries_points = 1U;
+  auto bounded =
+      predictfun::codec::decode_timeseries_response(timeseries_json, limits);
+  CHECK(!bounded);
+  CHECK(bounded.error().code == predictfun::ErrorCode::too_many_items);
+}
+
 } // namespace
 
 int main() {
@@ -216,6 +301,7 @@ int main() {
   test_empty_and_string_numeric_book();
   test_rejections_and_bounds();
   test_unknown_top_level_status();
+  test_category_and_timeseries_responses();
 
   if (failures != 0) {
     std::cerr << failures << " test assertion(s) failed\n";

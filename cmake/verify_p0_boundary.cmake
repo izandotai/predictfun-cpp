@@ -1,6 +1,11 @@
 file(GLOB_RECURSE P0_FILES
-    "${ROOT}/include/*.hpp"
-    "${ROOT}/src/*.cpp"
+    "${ROOT}/include/predictfun/types/*.hpp"
+    "${ROOT}/include/predictfun/codec/*.hpp"
+)
+list(APPEND P0_FILES
+    "${ROOT}/src/decimal.cpp"
+    "${ROOT}/src/orderbook.cpp"
+    "${ROOT}/src/codec.cpp"
 )
 
 set(FORBIDDEN_PATTERNS

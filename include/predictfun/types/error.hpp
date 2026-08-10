@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -9,7 +10,21 @@ namespace predictfun {
 
 enum class ErrorCode {
   invalid_argument,
+  cancelled,
+  deadline_exceeded,
+  dns_failure,
+  connect_failure,
+  tls_failure,
+  write_failure,
+  read_failure,
+  body_truncated,
   body_too_large,
+  rate_limited,
+  authentication_required,
+  http_redirect,
+  http_client_error,
+  http_server_error,
+  protocol_error,
   malformed_json,
   missing_field,
   invalid_field,
@@ -27,6 +42,8 @@ struct Error {
   ErrorCode code{ErrorCode::invalid_argument};
   std::string message;
   std::string field;
+  int http_status{0};
+  std::uint64_t retry_after_ms{0};
 };
 
 template <class T> class Result {

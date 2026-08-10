@@ -47,6 +47,56 @@ struct WireMarketsResponse {
   std::optional<bool> success;
 };
 
+struct WireMarketResponse {
+  std::optional<WireMarket> data;
+  std::optional<bool> success;
+};
+
+struct WireCategory {
+  std::optional<std::uint64_t> id;
+  std::optional<std::string> slug;
+  std::optional<std::string> title;
+  std::optional<std::string> shortTitle;
+  std::optional<std::string> description;
+  std::optional<bool> isNegRisk;
+  std::optional<bool> isYieldBearing;
+  std::optional<bool> isVisible;
+  std::optional<std::string> status;
+  std::optional<std::vector<WireMarket>> markets;
+};
+
+struct WireCategoriesResponse {
+  std::optional<std::string> cursor;
+  std::optional<std::vector<WireCategory>> data;
+  std::optional<bool> success;
+};
+
+struct WireCategoryResponse {
+  std::optional<WireCategory> data;
+  std::optional<bool> success;
+};
+
+struct WireTimeseriesPoint {
+  std::optional<glz::raw_json> x;
+  std::optional<glz::raw_json> y;
+};
+
+struct WireTimeseriesData {
+  std::optional<std::string> resolution;
+  std::optional<std::vector<WireTimeseriesPoint>> series;
+};
+
+struct WireTimeseriesResponse {
+  std::optional<std::string> cursor;
+  std::optional<WireTimeseriesData> data;
+  std::optional<bool> success;
+};
+
+struct WireTimeseriesLatestResponse {
+  std::optional<WireTimeseriesPoint> data;
+  std::optional<bool> success;
+};
+
 struct WireLastOrderSettled {
   std::optional<std::string> id;
   std::optional<std::string> kind;
@@ -124,6 +174,16 @@ EnumValue<OutcomeStatus> parse_outcome_status(const std::string &raw) {
   if (raw == "VOIDED")
     return enum_value(OutcomeStatus::voided, raw);
   return enum_value(OutcomeStatus::unknown, raw);
+}
+
+EnumValue<CategoryStatus> parse_category_status(const std::string &raw) {
+  if (raw == "OPEN")
+    return enum_value(CategoryStatus::open, raw);
+  if (raw == "RESOLVED")
+    return enum_value(CategoryStatus::resolved, raw);
+  if (raw == "REMOVED")
+    return enum_value(CategoryStatus::removed, raw);
+  return enum_value(CategoryStatus::unknown, raw);
 }
 
 EnumValue<OrderKind> parse_order_kind(const std::string &raw) {
@@ -304,6 +364,78 @@ Result<Market> convert_market(const WireMarket &wire,
   return market;
 }
 
+Result<Category> convert_category(const WireCategory &wire,
+                                  const DecodeLimits &limits) {
+  if (!wire.id)
+    return missing("data[].id");
+  if (!wire.slug)
+    return missing("data[].slug");
+  if (!wire.title)
+    return missing("data[].title");
+  if (!wire.isNegRisk)
+    return missing("data[].isNegRisk");
+  if (!wire.isYieldBearing)
+    return missing("data[].isYieldBearing");
+  if (!wire.isVisible)
+    return missing("data[].isVisible");
+  if (!wire.status)
+    return missing("data[].status");
+  if (wire.markets && wire.markets->size() > limits.max_markets) {
+    return Error{ErrorCode::too_many_items,
+                 "category contains too many markets", "data[].markets"};
+  }
+  const auto strings_valid =
+      string_within_limit(*wire.slug, limits) &&
+      string_within_limit(*wire.title, limits) &&
+      (!wire.shortTitle || string_within_limit(*wire.shortTitle, limits)) &&
+      (!wire.description || string_within_limit(*wire.description, limits));
+  if (!strings_valid)
+    return invalid("category string exceeds configured limit", "data[]");
+
+  Category category;
+  category.id = *wire.id;
+  category.slug = *wire.slug;
+  category.title = *wire.title;
+  category.short_title = wire.shortTitle;
+  category.description = wire.description;
+  category.is_neg_risk = *wire.isNegRisk;
+  category.is_yield_bearing = *wire.isYieldBearing;
+  category.is_visible = *wire.isVisible;
+  category.status = parse_category_status(*wire.status);
+  if (wire.markets) {
+    category.markets.reserve(wire.markets->size());
+    for (const auto &item : *wire.markets) {
+      auto market = convert_market(item, limits);
+      if (!market)
+        return market.error();
+      category.markets.push_back(std::move(market.value()));
+    }
+  }
+  return category;
+}
+
+Result<TimeseriesPoint>
+convert_timeseries_point(const WireTimeseriesPoint &wire, std::string prefix) {
+  if (!wire.x)
+    return missing(prefix + ".x");
+  if (!wire.y)
+    return missing(prefix + ".y");
+  auto x = parse_decimal_raw(*wire.x, prefix + ".x");
+  if (!x)
+    return x.error();
+  if (x.value().scale() != 0U ||
+      x.value().units() > static_cast<std::uint64_t>(
+                              std::numeric_limits<std::int64_t>::max())) {
+    return invalid("timeseries x must be a non-negative integer",
+                   prefix + ".x");
+  }
+  auto y = parse_decimal_raw(*wire.y, prefix + ".y");
+  if (!y)
+    return y.error();
+  return TimeseriesPoint{static_cast<std::int64_t>(x.value().units()),
+                         y.value()};
+}
+
 Result<PriceLevel> convert_level(const std::array<glz::raw_json, 2> &wire,
                                  std::uint8_t precision, std::string field) {
   auto price = parse_price_raw(wire[0], precision, field + "[0]");
@@ -438,6 +570,67 @@ Result<MarketsPage> decode_markets_response(std::string_view json,
   return page;
 }
 
+Result<Market> decode_market_response(std::string_view json,
+                                      const DecodeLimits &limits) {
+  auto parsed = parse_wire<WireMarketResponse>(json, limits);
+  if (!parsed)
+    return parsed.error();
+  const auto &wire = parsed.value();
+  if (!wire.success)
+    return missing("success");
+  if (!*wire.success)
+    return Error{ErrorCode::venue_rejected,
+                 "Predict.fun returned success=false", "success"};
+  if (!wire.data)
+    return missing("data");
+  return convert_market(*wire.data, limits);
+}
+
+Result<CategoriesPage> decode_categories_response(std::string_view json,
+                                                  const DecodeLimits &limits) {
+  auto parsed = parse_wire<WireCategoriesResponse>(json, limits);
+  if (!parsed)
+    return parsed.error();
+  const auto &wire = parsed.value();
+  if (!wire.success)
+    return missing("success");
+  if (!*wire.success)
+    return Error{ErrorCode::venue_rejected,
+                 "Predict.fun returned success=false", "success"};
+  if (!wire.data)
+    return missing("data");
+  if (wire.data->size() > limits.max_categories) {
+    return Error{ErrorCode::too_many_items,
+                 "category page exceeds configured item limit", "data"};
+  }
+  CategoriesPage page;
+  page.cursor = wire.cursor;
+  page.categories.reserve(wire.data->size());
+  for (const auto &item : *wire.data) {
+    auto category = convert_category(item, limits);
+    if (!category)
+      return category.error();
+    page.categories.push_back(std::move(category.value()));
+  }
+  return page;
+}
+
+Result<Category> decode_category_response(std::string_view json,
+                                          const DecodeLimits &limits) {
+  auto parsed = parse_wire<WireCategoryResponse>(json, limits);
+  if (!parsed)
+    return parsed.error();
+  const auto &wire = parsed.value();
+  if (!wire.success)
+    return missing("success");
+  if (!*wire.success)
+    return Error{ErrorCode::venue_rejected,
+                 "Predict.fun returned success=false", "success"};
+  if (!wire.data)
+    return missing("data");
+  return convert_category(*wire.data, limits);
+}
+
 Result<Orderbook> decode_orderbook_response(std::string_view json,
                                             std::uint8_t decimal_precision,
                                             const DecodeLimits &limits) {
@@ -512,6 +705,68 @@ Result<Orderbook> decode_orderbook_response(std::string_view json,
     book.settlements_pending = pending.value();
   }
   return book;
+}
+
+Result<TimeseriesPage> decode_timeseries_response(std::string_view json,
+                                                  const DecodeLimits &limits) {
+  auto parsed = parse_wire<WireTimeseriesResponse>(json, limits);
+  if (!parsed)
+    return parsed.error();
+  const auto &wire = parsed.value();
+  if (!wire.success)
+    return missing("success");
+  if (!*wire.success)
+    return Error{ErrorCode::venue_rejected,
+                 "Predict.fun returned success=false", "success"};
+  if (!wire.data)
+    return missing("data");
+  if (!wire.data->resolution)
+    return missing("data.resolution");
+  if (!wire.data->series)
+    return missing("data.series");
+  if (!string_within_limit(*wire.data->resolution, limits))
+    return invalid("timeseries resolution exceeds configured limit",
+                   "data.resolution");
+  if (wire.data->series->size() > limits.max_timeseries_points) {
+    return Error{ErrorCode::too_many_items,
+                 "timeseries exceeds configured point limit", "data.series"};
+  }
+  TimeseriesPage page;
+  page.cursor = wire.cursor;
+  page.resolution = *wire.data->resolution;
+  page.points.reserve(wire.data->series->size());
+  std::int64_t previous = -1;
+  for (std::size_t i = 0; i < wire.data->series->size(); ++i) {
+    auto point = convert_timeseries_point(
+        (*wire.data->series)[i], "data.series[" + std::to_string(i) + "]");
+    if (!point)
+      return point.error();
+    if (point.value().timestamp_ms <= previous) {
+      return Error{ErrorCode::invalid_field,
+                   "timeseries timestamps must be strictly increasing",
+                   "data.series"};
+    }
+    previous = point.value().timestamp_ms;
+    page.points.push_back(std::move(point.value()));
+  }
+  return page;
+}
+
+Result<TimeseriesPoint>
+decode_latest_timeseries_response(std::string_view json,
+                                  const DecodeLimits &limits) {
+  auto parsed = parse_wire<WireTimeseriesLatestResponse>(json, limits);
+  if (!parsed)
+    return parsed.error();
+  const auto &wire = parsed.value();
+  if (!wire.success)
+    return missing("success");
+  if (!*wire.success)
+    return Error{ErrorCode::venue_rejected,
+                 "Predict.fun returned success=false", "success"};
+  if (!wire.data)
+    return missing("data");
+  return convert_timeseries_point(*wire.data, "data");
 }
 
 } // namespace predictfun::codec
