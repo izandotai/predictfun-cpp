@@ -23,7 +23,14 @@ enum class TradingStatus {
   closed,
   unknown
 };
-enum class MarketStatus { registered, resolving, resolved, removed, unknown };
+enum class MarketStatus {
+  registered,
+  open,
+  resolving,
+  resolved,
+  removed,
+  unknown
+};
 enum class OutcomeStatus { won, lost, voided, unknown };
 
 template <class Enum> struct EnumValue {

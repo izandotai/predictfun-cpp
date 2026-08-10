@@ -93,6 +93,7 @@ predictfun_enable_warnings(predictfun_types)
 
 add_library(predictfun_codec STATIC
     src/codec.cpp
+    src/websocket_codec.cpp
 )
 add_library(predictfun::codec ALIAS predictfun_codec)
 target_compile_features(predictfun_codec PUBLIC cxx_std_20)
@@ -110,6 +111,7 @@ predictfun_enable_warnings(predictfun_codec)
 add_library(predictfun_net STATIC
     src/http.cpp
     src/rate_limiter.cpp
+    src/websocket.cpp
 )
 add_library(predictfun::net ALIAS predictfun_net)
 target_compile_features(predictfun_net PUBLIC cxx_std_20)
@@ -131,6 +133,11 @@ if(WIN32)
     target_link_libraries(predictfun_net PUBLIC ws2_32 mswsock crypt32)
 endif()
 predictfun_enable_warnings(predictfun_net)
+if(MINGW)
+    # Beast's TLS/WebSocket templates produce more COFF sections than the
+    # default MinGW object limit in Debug builds.
+    target_compile_options(predictfun_net PRIVATE -Wa,-mbig-obj)
+endif()
 
 add_library(predictfun_public_rest STATIC
     src/public_rest.cpp
@@ -147,12 +154,28 @@ target_link_libraries(predictfun_public_rest
 )
 predictfun_enable_warnings(predictfun_public_rest)
 
+add_library(predictfun_public_wss STATIC
+    src/public_wss.cpp
+)
+add_library(predictfun::public_wss ALIAS predictfun_public_wss)
+target_compile_features(predictfun_public_wss PUBLIC cxx_std_20)
+target_include_directories(predictfun_public_wss
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+target_link_libraries(predictfun_public_wss
+    PUBLIC predictfun::codec predictfun::net
+)
+predictfun_enable_warnings(predictfun_public_wss)
+
 set_target_properties(predictfun_types PROPERTIES EXPORT_NAME types)
 set_target_properties(predictfun_codec PROPERTIES EXPORT_NAME codec)
 set_target_properties(predictfun_net PROPERTIES EXPORT_NAME net)
 set_target_properties(predictfun_public_rest PROPERTIES EXPORT_NAME public_rest)
+set_target_properties(predictfun_public_wss PROPERTIES EXPORT_NAME public_wss)
 
-install(TARGETS predictfun_types predictfun_codec predictfun_net predictfun_public_rest
+install(TARGETS predictfun_types predictfun_codec predictfun_net predictfun_public_rest predictfun_public_wss
     EXPORT predictfunTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -188,6 +211,13 @@ if(PREDICTFUN_BUILD_TOOLS)
         PRIVATE predictfun::public_rest
     )
     predictfun_enable_warnings(predictfun_read_only_probe)
+
+    add_executable(predictfun_public_wss_probe tools/public_wss_probe.cpp)
+    target_compile_features(predictfun_public_wss_probe PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_public_wss_probe
+        PRIVATE predictfun::public_wss
+    )
+    predictfun_enable_warnings(predictfun_public_wss_probe)
 endif()
 
 if(PREDICTFUN_BUILD_TESTS)
@@ -221,6 +251,38 @@ if(PREDICTFUN_BUILD_TESTS)
     predictfun_enable_warnings(predictfun_http_transport_tests)
     add_test(NAME http_transport COMMAND predictfun_http_transport_tests)
 
+    add_executable(predictfun_websocket_codec_tests
+        tests/websocket_codec_tests.cpp
+    )
+    target_compile_features(predictfun_websocket_codec_tests PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_websocket_codec_tests
+        PRIVATE predictfun::codec
+    )
+    predictfun_enable_warnings(predictfun_websocket_codec_tests)
+    add_test(NAME websocket_codec COMMAND predictfun_websocket_codec_tests)
+
+    add_executable(predictfun_public_wss_tests tests/public_wss_tests.cpp)
+    target_compile_features(predictfun_public_wss_tests PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_public_wss_tests
+        PRIVATE predictfun::public_wss
+    )
+    predictfun_enable_warnings(predictfun_public_wss_tests)
+    add_test(NAME public_wss COMMAND predictfun_public_wss_tests)
+
+    add_executable(predictfun_websocket_transport_tests
+        tests/websocket_transport_tests.cpp
+    )
+    target_compile_features(predictfun_websocket_transport_tests PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_websocket_transport_tests
+        PRIVATE predictfun::net
+    )
+    predictfun_enable_warnings(predictfun_websocket_transport_tests)
+    if(MINGW)
+        target_compile_options(predictfun_websocket_transport_tests
+            PRIVATE -Wa,-mbig-obj)
+    endif()
+    add_test(NAME websocket_transport COMMAND predictfun_websocket_transport_tests)
+
     add_test(
         NAME p0_boundary
         COMMAND ${CMAKE_COMMAND}
@@ -232,5 +294,11 @@ if(PREDICTFUN_BUILD_TESTS)
         COMMAND ${CMAKE_COMMAND}
             -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_p1_boundary.cmake
+    )
+    add_test(
+        NAME p2_boundary
+        COMMAND ${CMAKE_COMMAND}
+            -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_p2_boundary.cmake
     )
 endif()

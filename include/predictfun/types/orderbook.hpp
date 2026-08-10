@@ -18,6 +18,11 @@ struct PriceLevel {
   FixedDecimal quantity;
 };
 
+struct PendingSettlementLevels {
+  std::vector<PriceLevel> yes_bids;
+  std::vector<PriceLevel> yes_asks;
+};
+
 struct LastOrderSettled {
   std::string id;
   EnumValue<OrderKind> kind;
@@ -36,6 +41,7 @@ struct Orderbook {
   std::optional<std::uint64_t> order_count;
   std::optional<LastOrderSettled> last_order_settled;
   std::optional<FixedDecimal> settlements_pending;
+  std::optional<PendingSettlementLevels> settlement_levels_pending;
 };
 
 struct NoOrderbookView {

@@ -40,6 +40,10 @@ decode_category_response(std::string_view json,
 decode_orderbook_response(std::string_view json, std::uint8_t decimal_precision,
                           const DecodeLimits &limits = {});
 
+[[nodiscard]] Result<Orderbook>
+decode_orderbook_payload(std::string_view json, std::uint8_t decimal_precision,
+                         const DecodeLimits &limits = {});
+
 [[nodiscard]] Result<TimeseriesPage>
 decode_timeseries_response(std::string_view json,
                            const DecodeLimits &limits = {});

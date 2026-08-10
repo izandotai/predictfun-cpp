@@ -116,6 +116,11 @@ struct WireOrderbook {
   std::optional<std::int64_t> updateTimestampMs;
 };
 
+struct WirePendingSettlementLevels {
+  std::optional<std::vector<std::array<glz::raw_json, 2>>> asks;
+  std::optional<std::vector<std::array<glz::raw_json, 2>>> bids;
+};
+
 struct WireOrderbookResponse {
   std::optional<WireOrderbook> data;
   std::optional<bool> success;
@@ -157,6 +162,8 @@ EnumValue<TradingStatus> parse_trading_status(const std::string &raw) {
 EnumValue<MarketStatus> parse_market_status(const std::string &raw) {
   if (raw == "REGISTERED")
     return enum_value(MarketStatus::registered, raw);
+  if (raw == "OPEN")
+    return enum_value(MarketStatus::open, raw);
   if (raw == "RESOLVING")
     return enum_value(MarketStatus::resolving, raw);
   if (raw == "RESOLVED")
@@ -517,6 +524,85 @@ Result<LastOrderSettled> convert_last_order(const WireLastOrderSettled &wire,
   };
 }
 
+Result<Orderbook> convert_orderbook(const WireOrderbook &wire,
+                                    std::uint8_t decimal_precision,
+                                    const DecodeLimits &limits) {
+  if (!wire.marketId)
+    return missing("data.marketId");
+  if (!wire.updateTimestampMs)
+    return missing("data.updateTimestampMs");
+  if (!wire.asks)
+    return missing("data.asks");
+  if (!wire.bids)
+    return missing("data.bids");
+  if (*wire.updateTimestampMs <= 0) {
+    return invalid("book timestamp must be positive", "data.updateTimestampMs");
+  }
+
+  auto asks = convert_levels(*wire.asks, decimal_precision, limits, true,
+                             "data.asks");
+  if (!asks)
+    return asks.error();
+  auto bids = convert_levels(*wire.bids, decimal_precision, limits, false,
+                             "data.bids");
+  if (!bids)
+    return bids.error();
+  if (!asks.value().empty() && !bids.value().empty() &&
+      bids.value().front().price.ticks() >=
+          asks.value().front().price.ticks()) {
+    return Error{ErrorCode::invalid_orderbook,
+                 "best bid must be below best ask", "data"};
+  }
+
+  Orderbook book;
+  book.market_id = MarketId{*wire.marketId};
+  book.update_timestamp_ms = *wire.updateTimestampMs;
+  book.decimal_precision = decimal_precision;
+  book.yes_asks = std::move(asks.value());
+  book.yes_bids = std::move(bids.value());
+  book.order_count = wire.orderCount;
+  if (wire.lastOrderSettled) {
+    auto last =
+        convert_last_order(*wire.lastOrderSettled, decimal_precision, limits);
+    if (!last)
+      return last.error();
+    if (last.value().market_id != book.market_id) {
+      return Error{ErrorCode::invalid_orderbook,
+                   "last settled order belongs to another market",
+                   "data.lastOrderSettled.marketId"};
+    }
+    book.last_order_settled = std::move(last.value());
+  }
+  if (wire.settlementsPending) {
+    auto pending =
+        parse_decimal_raw(*wire.settlementsPending, "data.settlementsPending");
+    if (pending) {
+      book.settlements_pending = pending.value();
+    } else {
+      WirePendingSettlementLevels levels;
+      const auto parse_error =
+          glz::read<read_options>(levels, wire.settlementsPending->str);
+      if (parse_error || !levels.asks || !levels.bids) {
+        return invalid("pending settlements must be a decimal or level object",
+                       "data.settlementsPending");
+      }
+      auto pending_asks = convert_levels(*levels.asks, decimal_precision,
+                                         limits, true,
+                                         "data.settlementsPending.asks");
+      if (!pending_asks)
+        return pending_asks.error();
+      auto pending_bids = convert_levels(*levels.bids, decimal_precision,
+                                         limits, false,
+                                         "data.settlementsPending.bids");
+      if (!pending_bids)
+        return pending_bids.error();
+      book.settlement_levels_pending = PendingSettlementLevels{
+          std::move(pending_bids.value()), std::move(pending_asks.value())};
+    }
+  }
+  return book;
+}
+
 template <class Wire>
 Result<Wire> parse_wire(std::string_view json, const DecodeLimits &limits) {
   if (json.size() > limits.max_body_bytes) {
@@ -650,61 +736,20 @@ Result<Orderbook> decode_orderbook_response(std::string_view json,
   }
   if (!response.data)
     return missing("data");
-  const auto &wire = *response.data;
-  if (!wire.marketId)
-    return missing("data.marketId");
-  if (!wire.updateTimestampMs)
-    return missing("data.updateTimestampMs");
-  if (!wire.asks)
-    return missing("data.asks");
-  if (!wire.bids)
-    return missing("data.bids");
-  if (*wire.updateTimestampMs <= 0) {
-    return invalid("book timestamp must be positive", "data.updateTimestampMs");
-  }
+  return convert_orderbook(*response.data, decimal_precision, limits);
+}
 
-  auto asks =
-      convert_levels(*wire.asks, decimal_precision, limits, true, "data.asks");
-  if (!asks)
-    return asks.error();
-  auto bids =
-      convert_levels(*wire.bids, decimal_precision, limits, false, "data.bids");
-  if (!bids)
-    return bids.error();
-  if (!asks.value().empty() && !bids.value().empty() &&
-      bids.value().front().price.ticks() >=
-          asks.value().front().price.ticks()) {
-    return Error{ErrorCode::invalid_orderbook,
-                 "best bid must be below best ask", "data"};
+Result<Orderbook> decode_orderbook_payload(std::string_view json,
+                                           std::uint8_t decimal_precision,
+                                           const DecodeLimits &limits) {
+  if (decimal_precision > FixedDecimal::max_scale) {
+    return Error{ErrorCode::unsupported_precision,
+                 "book precision exceeds 18 digits", "decimalPrecision"};
   }
-
-  Orderbook book;
-  book.market_id = MarketId{*wire.marketId};
-  book.update_timestamp_ms = *wire.updateTimestampMs;
-  book.decimal_precision = decimal_precision;
-  book.yes_asks = std::move(asks.value());
-  book.yes_bids = std::move(bids.value());
-  book.order_count = wire.orderCount;
-  if (wire.lastOrderSettled) {
-    auto last =
-        convert_last_order(*wire.lastOrderSettled, decimal_precision, limits);
-    if (!last)
-      return last.error();
-    if (last.value().market_id != book.market_id) {
-      return Error{ErrorCode::invalid_orderbook,
-                   "last settled order belongs to another market",
-                   "data.lastOrderSettled.marketId"};
-    }
-    book.last_order_settled = std::move(last.value());
-  }
-  if (wire.settlementsPending) {
-    auto pending =
-        parse_decimal_raw(*wire.settlementsPending, "data.settlementsPending");
-    if (!pending)
-      return pending.error();
-    book.settlements_pending = pending.value();
-  }
-  return book;
+  auto parsed = parse_wire<WireOrderbook>(json, limits);
+  if (!parsed)
+    return parsed.error();
+  return convert_orderbook(parsed.value(), decimal_precision, limits);
 }
 
 Result<TimeseriesPage> decode_timeseries_response(std::string_view json,

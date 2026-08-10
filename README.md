@@ -2,7 +2,7 @@
 
 An independently layered C++20 client library for Predict.fun.
 
-The current P1 milestone contains four independently linkable layers:
+The current P2 milestone contains five independently linkable layers:
 
 - `predictfun::types`: strong market, decimal, price, and order-book types;
 - `predictfun::codec`: bounded, strict JSON decoding for public market and
@@ -13,11 +13,15 @@ The current P1 milestone contains four independently linkable layers:
 - `predictfun::public_rest`: typed, read-only markets, categories, order-book,
   and timeseries clients with global/endpoint rate limiting and bounded GET
   retries;
+- `predictfun::public_wss`: typed, read-only public WebSocket subscriptions
+  with exact heartbeat echoes, bounded frames and event queues, freshness
+  tracking, reconnect/resubscribe, and explicit resynchronization states;
 - deterministic YES-to-NO order-book derivation using integer ticks.
 
-P1 has no WebSocket, wallet, signer, RPC, JWT, or order submission code. The
-optional mainnet API key is supplied by the caller and is emitted only as an
-`x-api-key` header; the SDK does not read environment files.
+P2 has no private account feed, wallet, signer, RPC, JWT, or order submission
+code. The optional mainnet API key is supplied by the caller and is emitted
+only as an `x-api-key` header; the SDK does not read environment files and
+rejects credentials in request targets.
 
 ## Build and test
 
@@ -62,9 +66,19 @@ PREDICT_FUN_API_KEY=... ./build/dev/predictfun_read_only_probe --mainnet
 
 The key value, query parameters, and response bodies are never printed.
 
+The public WebSocket probe takes an already-discovered market id and its
+decimal precision. It subscribes read-only, waits for a fresh public order-book
+message, and exits without linking any trading path:
+
+```sh
+PREDICT_FUN_API_KEY=... ./build/dev/predictfun_public_wss_probe MARKET_ID PRECISION
+```
+
 ## Security boundary
 
 `p0_boundary` keeps types/codec free of networking and credentials.
 `p1_boundary` keeps public REST free of signing, wallets, RPC, environment-file
 access, and order submission. Redirects are rejected rather than followed, and
 secrets are forbidden in request targets and redacted request summaries.
+`p2_boundary` applies the same restrictions to the public WebSocket layer and
+also prevents private topics or order commands from entering the public API.
