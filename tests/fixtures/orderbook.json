@@ -1,0 +1,20 @@
+{
+  "data": {
+    "asks": [[0.62, 18.75], [0.70, 9.125]],
+    "bids": [[0.61, 24.5], [0.55, 100]],
+    "lastOrderSettled": {
+      "id": "sanitized-order-17",
+      "kind": "LIMIT",
+      "marketId": 424242,
+      "outcome": "Yes",
+      "price": "0.61",
+      "side": "Bid"
+    },
+    "marketId": 424242,
+    "orderCount": 4,
+    "settlementsPending": 1.25,
+    "updateTimestampMs": 1780000000123,
+    "futureBookField": "ignored"
+  },
+  "success": true
+}

@@ -1,0 +1,38 @@
+{
+  "cursor": "sanitized-next-page",
+  "data": [
+    {
+      "id": 424242,
+      "title": "Example binary market",
+      "question": "Will the example condition be true?",
+      "tradingStatus": "OPEN",
+      "status": "REGISTERED",
+      "decimalPrecision": 2,
+      "isNegRisk": false,
+      "isYieldBearing": true,
+      "feeRateBps": 200,
+      "outcomes": [
+        {
+          "bestAsk": {"price": 0.62, "size": 18.75},
+          "bestBid": {"price": 0.61, "size": 24.5},
+          "indexSet": 1,
+          "name": "Yes",
+          "onChainId": "sanitized-yes-token",
+          "status": null,
+          "futureOptionalField": "ignored"
+        },
+        {
+          "bestAsk": null,
+          "bestBid": null,
+          "indexSet": 2,
+          "name": "No",
+          "onChainId": "sanitized-no-token",
+          "status": "FUTURE_STATUS"
+        }
+      ],
+      "futureOptionalObject": {"schema": 2}
+    }
+  ],
+  "success": true,
+  "futureEnvelopeField": true
+}

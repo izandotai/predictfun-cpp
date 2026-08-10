@@ -1,0 +1,226 @@
+#include "predictfun/codec/public_rest.hpp"
+#include "predictfun/types/decimal.hpp"
+#include "predictfun/types/orderbook.hpp"
+
+#include <cstdlib>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <string_view>
+
+namespace {
+
+int failures = 0;
+
+#define CHECK(condition)                                                       \
+  do {                                                                         \
+    if (!(condition)) {                                                        \
+      std::cerr << __FILE__ << ':' << __LINE__                                 \
+                << ": CHECK failed: " #condition << '\n';                      \
+      ++failures;                                                              \
+    }                                                                          \
+  } while (false)
+
+std::string fixture(std::string_view name) {
+  std::ifstream input(std::string{PREDICTFUN_FIXTURE_DIR} + "/" +
+                          std::string{name},
+                      std::ios::binary);
+  std::ostringstream output;
+  output << input.rdbuf();
+  return output.str();
+}
+
+void test_decimal() {
+  using predictfun::FixedDecimal;
+  using predictfun::Price;
+
+  auto decimal = FixedDecimal::parse("4108.2400");
+  CHECK(decimal);
+  CHECK(decimal.value().units() == 410824U);
+  CHECK(decimal.value().scale() == 2U);
+  CHECK(decimal.value().to_string() == "4108.24");
+
+  auto exponent = FixedDecimal::parse("1.25e2");
+  CHECK(exponent);
+  CHECK(exponent.value().to_string() == "125");
+
+  auto tiny = FixedDecimal::parse("0.000000000000000001");
+  CHECK(tiny);
+  CHECK(tiny.value().units() == 1U);
+  CHECK(tiny.value().scale() == 18U);
+
+  CHECK(!FixedDecimal::parse("-1"));
+  CHECK(!FixedDecimal::parse("1.0.0"));
+  CHECK(!FixedDecimal::parse("0.0000000000000000001"));
+
+  auto price = Price::parse("0.62", 2);
+  CHECK(price);
+  CHECK(price.value().ticks() == 62U);
+  CHECK(price.value().complement().ticks() == 38U);
+  CHECK(price.value().complement().to_string() == "0.38");
+  CHECK(!Price::parse("0.621", 2));
+  CHECK(!Price::parse("1.01", 2));
+}
+
+void test_markets_fixture() {
+  auto result =
+      predictfun::codec::decode_markets_response(fixture("markets_open.json"));
+  CHECK(result);
+  if (!result)
+    return;
+  const auto &page = result.value();
+  CHECK(page.cursor && *page.cursor == "sanitized-next-page");
+  CHECK(page.markets.size() == 1U);
+  const auto &market = page.markets.front();
+  CHECK(market.id.value == 424242U);
+  CHECK(market.trading_status.value == predictfun::TradingStatus::open);
+  CHECK(market.status.value == predictfun::MarketStatus::registered);
+  CHECK(market.decimal_precision == 2U);
+  CHECK(market.outcomes.size() == 2U);
+  CHECK(market.outcomes[0].best_ask.has_value());
+  CHECK(market.outcomes[0].best_ask->price.ticks() == 62U);
+  CHECK(market.outcomes[1].status.has_value());
+  CHECK(market.outcomes[1].status->value == predictfun::OutcomeStatus::unknown);
+  CHECK(market.outcomes[1].status->raw == "FUTURE_STATUS");
+}
+
+void test_orderbook_fixture_and_no_view() {
+  auto result = predictfun::codec::decode_orderbook_response(
+      fixture("orderbook.json"), 2);
+  CHECK(result);
+  if (!result)
+    return;
+  const auto &book = result.value();
+  CHECK(book.market_id.value == 424242U);
+  CHECK(book.yes_asks.size() == 2U);
+  CHECK(book.yes_bids.size() == 2U);
+  CHECK(book.yes_asks[0].price.ticks() == 62U);
+  CHECK(book.yes_bids[0].price.ticks() == 61U);
+  CHECK(book.yes_asks[0].quantity.to_string() == "18.75");
+  CHECK(book.last_order_settled.has_value());
+  CHECK(book.last_order_settled->kind.value == predictfun::OrderKind::limit);
+  CHECK(book.settlements_pending.has_value());
+  CHECK(book.settlements_pending->to_string() == "1.25");
+
+  const auto no = predictfun::derive_no_book(book);
+  CHECK(no.no_bids.size() == 2U);
+  CHECK(no.no_asks.size() == 2U);
+  CHECK(no.no_bids[0].price.ticks() == 38U);
+  CHECK(no.no_bids[1].price.ticks() == 30U);
+  CHECK(no.no_asks[0].price.ticks() == 39U);
+  CHECK(no.no_asks[1].price.ticks() == 45U);
+  CHECK(no.no_bids[0].quantity == book.yes_asks[0].quantity);
+}
+
+void test_empty_and_string_numeric_book() {
+  constexpr auto json = R"({
+        "success": true,
+        "data": {
+            "marketId": 7,
+            "updateTimestampMs": 1780000000999,
+            "asks": [["0.010", "4108.2400"]],
+            "bids": [],
+            "lastOrderSettled": null
+        }
+    })";
+  auto result = predictfun::codec::decode_orderbook_response(json, 3);
+  CHECK(result);
+  if (!result)
+    return;
+  CHECK(result.value().yes_asks[0].price.ticks() == 10U);
+  CHECK(result.value().yes_asks[0].quantity.to_string() == "4108.24");
+  CHECK(result.value().yes_bids.empty());
+  CHECK(predictfun::derive_no_book(result.value()).no_asks.empty());
+}
+
+void test_rejections_and_bounds() {
+  constexpr auto missing =
+      R"({"success":true,"data":{"marketId":1,"asks":[],"bids":[]}})";
+  auto missing_result =
+      predictfun::codec::decode_orderbook_response(missing, 2);
+  CHECK(!missing_result);
+  CHECK(missing_result.error().code == predictfun::ErrorCode::missing_field);
+
+  constexpr auto bad_tick =
+      R"({"success":true,"data":{"marketId":1,"updateTimestampMs":1,"asks":[[0.011,1]],"bids":[]}})";
+  CHECK(!predictfun::codec::decode_orderbook_response(bad_tick, 2));
+
+  constexpr auto negative_quantity =
+      R"({"success":true,"data":{"marketId":1,"updateTimestampMs":1,"asks":[[0.10,-1]],"bids":[]}})";
+  CHECK(!predictfun::codec::decode_orderbook_response(negative_quantity, 2));
+
+  constexpr auto unsorted =
+      R"({"success":true,"data":{"marketId":1,"updateTimestampMs":1,"asks":[[0.20,1],[0.10,1]],"bids":[]}})";
+  CHECK(!predictfun::codec::decode_orderbook_response(unsorted, 2));
+
+  constexpr auto crossed =
+      R"({"success":true,"data":{"marketId":1,"updateTimestampMs":1,"asks":[[0.50,1]],"bids":[[0.50,1]]}})";
+  CHECK(!predictfun::codec::decode_orderbook_response(crossed, 2));
+
+  constexpr auto too_many =
+      R"({"success":true,"data":{"marketId":1,"updateTimestampMs":1,"asks":[[0.50,1]],"bids":[]}})";
+  predictfun::codec::DecodeLimits limits;
+  limits.max_book_levels_per_side = 0;
+  auto bounded =
+      predictfun::codec::decode_orderbook_response(too_many, 2, limits);
+  CHECK(!bounded);
+  CHECK(bounded.error().code == predictfun::ErrorCode::too_many_items);
+
+  predictfun::codec::DecodeLimits tiny_body;
+  tiny_body.max_body_bytes = 8;
+  auto body =
+      predictfun::codec::decode_orderbook_response(too_many, 2, tiny_body);
+  CHECK(!body);
+  CHECK(body.error().code == predictfun::ErrorCode::body_too_large);
+
+  CHECK(!predictfun::codec::decode_markets_response("{not-json"));
+  CHECK(!predictfun::codec::decode_markets_response(
+      R"({"success":false,"data":[]})"));
+}
+
+void test_unknown_top_level_status() {
+  constexpr auto json = R"({
+      "success": true,
+      "data": [{
+        "id": 9,
+        "title": "Future state",
+        "question": "Future?",
+        "tradingStatus": "PAUSED_BY_FUTURE_RULE",
+        "status": "FUTURE_LIFECYCLE",
+        "decimalPrecision": 2,
+        "isNegRisk": false,
+        "isYieldBearing": false,
+        "feeRateBps": 0,
+        "outcomes": []
+      }]
+    })";
+  auto result = predictfun::codec::decode_markets_response(json);
+  CHECK(result);
+  if (!result)
+    return;
+  CHECK(result.value().markets[0].trading_status.value ==
+        predictfun::TradingStatus::unknown);
+  CHECK(result.value().markets[0].trading_status.raw ==
+        "PAUSED_BY_FUTURE_RULE");
+  CHECK(result.value().markets[0].status.value ==
+        predictfun::MarketStatus::unknown);
+}
+
+} // namespace
+
+int main() {
+  test_decimal();
+  test_markets_fixture();
+  test_orderbook_fixture_and_no_view();
+  test_empty_and_string_numeric_book();
+  test_rejections_and_bounds();
+  test_unknown_top_level_status();
+
+  if (failures != 0) {
+    std::cerr << failures << " test assertion(s) failed\n";
+    return EXIT_FAILURE;
+  }
+  std::cout << "predictfun-cpp codec tests passed\n";
+  return EXIT_SUCCESS;
+}
