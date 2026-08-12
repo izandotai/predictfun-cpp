@@ -47,6 +47,8 @@ enum class ErrorCode {
   remote_error,
   unsupported_chain,
   execution_reverted,
+  storage_failure,
+  journal_corrupt,
 };
 
 struct Error {

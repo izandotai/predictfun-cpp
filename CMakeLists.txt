@@ -274,6 +274,7 @@ predictfun_enable_warnings(predictfun_trading)
 
 add_library(predictfun_lifecycle STATIC
     src/lifecycle.cpp
+    src/lifecycle_journal.cpp
 )
 add_library(predictfun::lifecycle ALIAS predictfun_lifecycle)
 target_compile_features(predictfun_lifecycle PUBLIC cxx_std_20)
@@ -438,6 +439,13 @@ if(PREDICTFUN_BUILD_TOOLS)
         PRIVATE predictfun::public_wss
     )
     predictfun_enable_warnings(predictfun_public_wss_probe)
+
+    add_executable(predictfun_recovery_example tools/recovery_example.cpp)
+    target_compile_features(predictfun_recovery_example PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_recovery_example
+        PRIVATE predictfun::lifecycle
+    )
+    predictfun_enable_warnings(predictfun_recovery_example)
 endif()
 
 if(PREDICTFUN_BUILD_TESTS)

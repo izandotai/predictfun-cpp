@@ -32,6 +32,9 @@ public:
 
   [[nodiscard]] TrackedOrder *find(std::string_view hash) noexcept;
   [[nodiscard]] const TrackedOrder *find(std::string_view hash) const noexcept;
+  [[nodiscard]] std::vector<TrackedOrder> snapshot() const;
+  [[nodiscard]] Result<bool>
+  restore(const std::vector<TrackedOrder> &orders);
   [[nodiscard]] std::size_t size() const noexcept { return orders_.size(); }
 
 private:

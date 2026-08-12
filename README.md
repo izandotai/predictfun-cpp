@@ -25,6 +25,10 @@ The current SDK contains independently linkable authority layers:
 - `predictfun::trading`: single-attempt create/remove mutations with explicit
   ambiguous-result semantics;
 - `predictfun::lifecycle`: private-event plus REST reconciliation state;
+- `predictfun::lifecycle`: also provides an append-only checksummed journal;
+  journal-before-publish transitions are durably synced by default, and
+  restart recovery quarantines every nonterminal order until the host supplies
+  a complete authenticated REST snapshot;
 - deterministic YES-to-NO order-book derivation using integer ticks.
 
 P0 through P5 are implemented and pass the deterministic Debug test matrix.
@@ -89,6 +93,21 @@ message, and exits without linking any trading path:
 
 ```sh
 PREDICT_FUN_API_KEY=... ./build/dev/predictfun_public_wss_probe MARKET_ID PRECISION
+```
+
+## Crash recovery
+
+`PersistentOrderTracker` records only typed lifecycle state: order hash/id,
+exact requested and filled amounts, state, timestamps and a sanitized reason.
+It does not persist credentials, signatures, HTTP bodies or raw venue events.
+Each record has a length bound and CRC; a partial final record from a process
+crash is removed on recovery, while corruption inside a completed record fails
+closed. Nonterminal orders are never assumed failed and never blindly resent.
+
+The recovery example inspects an existing journal without any network or key:
+
+```sh
+./build/dev/predictfun_recovery_example ./runtime/orders.journal
 ```
 
 ## Security boundary

@@ -1,7 +1,11 @@
 #include "predictfun/codec/private_rest.hpp"
+#include "predictfun/lifecycle/journal.hpp"
 #include "predictfun/lifecycle/tracker.hpp"
 
+#include <chrono>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -54,6 +58,15 @@ predictfun::WalletEvent wallet(predictfun::WalletEventType type,
               predictfun::OrderStrategy::limit, "LIMIT"},
           "crypto"},
       {}, {}, {}, {}, {}, {}};
+}
+
+std::filesystem::path temporary_journal(std::string_view name) {
+  const auto stamp = std::chrono::steady_clock::now()
+                         .time_since_epoch()
+                         .count();
+  return std::filesystem::temp_directory_path() /
+         ("predictfun-" + std::string{name} + "-" +
+          std::to_string(stamp) + ".journal");
 }
 
 void test_ambiguous_submission_requires_reconciliation() {
@@ -122,6 +135,125 @@ void test_disconnect_does_not_invent_terminal_state() {
   CHECK(tracker.find(hash)->reconciliation_required);
 }
 
+void test_persistent_restart_quarantines_nonterminal_orders() {
+  const auto path = temporary_journal("restart");
+  {
+    auto opened = predictfun::lifecycle::PersistentOrderTracker::open(path);
+    CHECK(opened);
+    if (!opened) return;
+    auto tracker = std::move(opened.value());
+    CHECK(tracker.begin_submission(hash, exact("1")));
+    predictfun::MutationOutcome<predictfun::CreateOrderReceipt> ambiguous;
+    ambiguous.disposition = predictfun::MutationDisposition::ambiguous;
+    ambiguous.ambiguity = predictfun::Error{
+        predictfun::ErrorCode::ambiguous_submission,
+        "response lost after request write", {}};
+    ambiguous.reconciliation_key = hash;
+    CHECK(tracker.apply_create_outcome(hash, ambiguous));
+  }
+  {
+    auto opened = predictfun::lifecycle::PersistentOrderTracker::open(path);
+    CHECK(opened);
+    if (!opened) return;
+    auto tracker = std::move(opened.value());
+    CHECK(tracker.recovered_records() == 2U);
+    CHECK(tracker.size() == 1U);
+    CHECK(tracker.find(hash));
+    CHECK(tracker.find(hash)->state ==
+          predictfun::OrderLifecycleState::ambiguous);
+    CHECK(tracker.find(hash)->reconciliation_required);
+    CHECK(!tracker.find(hash)->safe_to_rebuild_with_new_nonce());
+    auto report = tracker.reconcile(5U, {order("OPEN", "0.5")});
+    CHECK(report && report.value().complete());
+    CHECK(tracker.find(hash)->state ==
+          predictfun::OrderLifecycleState::partially_filled);
+  }
+  std::error_code ignored;
+  std::filesystem::remove(path, ignored);
+}
+
+void test_terminal_restart_does_not_require_reconciliation() {
+  const auto path = temporary_journal("terminal");
+  {
+    auto opened = predictfun::lifecycle::PersistentOrderTracker::open(path);
+    CHECK(opened);
+    if (!opened) return;
+    auto tracker = std::move(opened.value());
+    CHECK(tracker.begin_submission(hash, exact("1")));
+    CHECK(tracker.apply_rest_order(order("MATCHED", "1")));
+  }
+  auto reopened = predictfun::lifecycle::PersistentOrderTracker::open(path);
+  CHECK(reopened);
+  if (reopened) {
+    CHECK(reopened.value().find(hash)->terminal());
+    CHECK(!reopened.value().find(hash)->reconciliation_required);
+  }
+  std::error_code ignored;
+  std::filesystem::remove(path, ignored);
+}
+
+void test_truncated_tail_is_ignored_but_not_invented() {
+  const auto path = temporary_journal("torn-tail");
+  {
+    auto opened = predictfun::lifecycle::PersistentOrderTracker::open(path);
+    CHECK(opened);
+    if (!opened) return;
+    auto tracker = std::move(opened.value());
+    CHECK(tracker.begin_submission(hash, exact("1")));
+  }
+  {
+    std::ofstream stream(path, std::ios::binary | std::ios::app);
+    const char torn[] = {'x', 'y', 'z'};
+    stream.write(torn, static_cast<std::streamsize>(sizeof(torn)));
+  }
+  auto reopened = predictfun::lifecycle::PersistentOrderTracker::open(path);
+  CHECK(reopened);
+  if (reopened) {
+    CHECK(reopened.value().ignored_truncated_tail());
+    CHECK(reopened.value().find(hash));
+    CHECK(reopened.value().find(hash)->reconciliation_required);
+  }
+  auto reopened_again =
+      predictfun::lifecycle::PersistentOrderTracker::open(path);
+  CHECK(reopened_again);
+  if (reopened_again) {
+    CHECK(!reopened_again.value().ignored_truncated_tail());
+    CHECK(reopened_again.value().find(hash));
+    CHECK(reopened_again.value().find(hash)->reconciliation_required);
+  }
+  std::error_code ignored;
+  std::filesystem::remove(path, ignored);
+}
+
+void test_checksum_corruption_fails_closed() {
+  const auto path = temporary_journal("checksum");
+  {
+    auto opened = predictfun::lifecycle::PersistentOrderTracker::open(path);
+    CHECK(opened);
+    if (!opened) return;
+    auto tracker = std::move(opened.value());
+    CHECK(tracker.begin_submission(hash, exact("1")));
+  }
+  {
+    std::fstream stream(path, std::ios::binary | std::ios::in |
+                                  std::ios::out | std::ios::ate);
+    const auto end = stream.tellp();
+    CHECK(end > 0);
+    stream.seekg(end - std::streamoff{1});
+    char value = 0;
+    stream.read(&value, 1);
+    value ^= 0x01;
+    stream.seekp(end - std::streamoff{1});
+    stream.write(&value, 1);
+  }
+  auto reopened = predictfun::lifecycle::PersistentOrderTracker::open(path);
+  CHECK(!reopened);
+  if (!reopened)
+    CHECK(reopened.error().code == predictfun::ErrorCode::journal_corrupt);
+  std::error_code ignored;
+  std::filesystem::remove(path, ignored);
+}
+
 } // namespace
 
 int main() {
@@ -129,6 +261,10 @@ int main() {
   test_wallet_and_terminal_transitions();
   test_book_removal_is_not_chain_cancel();
   test_disconnect_does_not_invent_terminal_state();
+  test_persistent_restart_quarantines_nonterminal_orders();
+  test_terminal_restart_does_not_require_reconciliation();
+  test_truncated_tail_is_ignored_but_not_invented();
+  test_checksum_corruption_fails_closed();
   if (failures != 0) std::cerr << failures << " test(s) failed\n";
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -270,4 +270,38 @@ const TrackedOrder *OrderTracker::find(std::string_view hash) const noexcept {
   return iterator == orders_.end() ? nullptr : &iterator->second;
 }
 
+std::vector<TrackedOrder> OrderTracker::snapshot() const {
+  std::vector<TrackedOrder> result;
+  result.reserve(orders_.size());
+  for (const auto &[hash, order] : orders_) {
+    (void)hash;
+    result.push_back(order);
+  }
+  std::ranges::sort(result, {}, &TrackedOrder::order_hash);
+  return result;
+}
+
+Result<bool> OrderTracker::restore(const std::vector<TrackedOrder> &orders) {
+  std::unordered_map<std::string, TrackedOrder> recovered;
+  recovered.reserve(orders.size());
+  for (const auto &order : orders) {
+    if (!valid_hash(order.order_hash))
+      return Error{ErrorCode::journal_corrupt,
+                   "journal contains an invalid order hash", "order_hash"};
+    if (normalize(order.amount.to_string()).negative || zero(order.amount))
+      return Error{ErrorCode::journal_corrupt,
+                   "journal contains a non-positive order amount", "amount"};
+    if (normalize(order.amount_filled.to_string()).negative)
+      return Error{ErrorCode::journal_corrupt,
+                   "journal contains a negative filled amount",
+                   "amount_filled"};
+    if (!recovered.emplace(order.order_hash, order).second)
+      return Error{ErrorCode::journal_corrupt,
+                   "journal recovery produced duplicate order hashes",
+                   "order_hash"};
+  }
+  orders_ = std::move(recovered);
+  return true;
+}
+
 } // namespace predictfun::lifecycle
