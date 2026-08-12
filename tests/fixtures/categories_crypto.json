@@ -1,0 +1,58 @@
+{
+  "success": true,
+  "cursor": "next-crypto-page",
+  "data": [
+    {
+      "id": 304199,
+      "slug": "btc-updown-5m-1786604400",
+      "title": "Bitcoin Up or Down - sanitized window",
+      "shortTitle": "BTC Up or Down 5m",
+      "description": null,
+      "startsAt": "2026-08-13T07:00:00.000Z",
+      "endsAt": "2026-08-13T07:05:00.000Z",
+      "createdAt": "2026-08-12T07:00:01.000Z",
+      "publishedAt": "2026-08-12T07:00:02.000Z",
+      "marketVariant": "CRYPTO_UP_DOWN",
+      "variantData": {
+        "type": "CRYPTO_UP_DOWN",
+        "priceFeedProvider": "CHAINLINK",
+        "priceFeedSymbol": "BTCUSDT",
+        "priceFeedId": "sanitized-feed-id",
+        "startPrice": null,
+        "endPrice": 65000.25
+      },
+      "isNegRisk": false,
+      "isYieldBearing": false,
+      "isVisible": true,
+      "status": "OPEN",
+      "markets": [
+        {
+          "id": 1345674,
+          "title": "Bitcoin Up or Down - sanitized window",
+          "question": "Bitcoin Up or Down - sanitized window",
+          "tradingStatus": "OPEN",
+          "status": "REGISTERED",
+          "decimalPrecision": 2,
+          "isNegRisk": false,
+          "isYieldBearing": false,
+          "feeRateBps": 200,
+          "categorySlug": "btc-updown-5m-1786604400",
+          "createdAt": "2026-08-12T07:00:02.000Z",
+          "marketVariant": "CRYPTO_UP_DOWN",
+          "variantData": {
+            "type": "CRYPTO_UP_DOWN",
+            "priceFeedProvider": "CHAINLINK",
+            "priceFeedSymbol": "BTCUSDT",
+            "priceFeedId": "sanitized-feed-id",
+            "startPrice": null,
+            "endPrice": null
+          },
+          "outcomes": [
+            {"name":"Up","indexSet":1,"onChainId":"up-token"},
+            {"name":"Down","indexSet":2,"onChainId":"down-token"}
+          ]
+        }
+      ]
+    }
+  ]
+}

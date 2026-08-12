@@ -28,6 +28,15 @@ struct WireOutcome {
   std::optional<std::string> status;
 };
 
+struct WireVariantData {
+  std::optional<std::string> type;
+  std::optional<std::string> priceFeedProvider;
+  std::optional<std::string> priceFeedSymbol;
+  std::optional<std::string> priceFeedId;
+  std::optional<glz::raw_json> startPrice;
+  std::optional<glz::raw_json> endPrice;
+};
+
 struct WireMarket {
   std::optional<std::uint64_t> id;
   std::optional<std::string> title;
@@ -38,6 +47,10 @@ struct WireMarket {
   std::optional<bool> isNegRisk;
   std::optional<bool> isYieldBearing;
   std::optional<std::uint32_t> feeRateBps;
+  std::optional<std::string> categorySlug;
+  std::optional<std::string> createdAt;
+  std::optional<std::string> marketVariant;
+  std::optional<WireVariantData> variantData;
   std::optional<std::vector<WireOutcome>> outcomes;
 };
 
@@ -58,6 +71,12 @@ struct WireCategory {
   std::optional<std::string> title;
   std::optional<std::string> shortTitle;
   std::optional<std::string> description;
+  std::optional<std::string> startsAt;
+  std::optional<std::string> endsAt;
+  std::optional<std::string> createdAt;
+  std::optional<std::string> publishedAt;
+  std::optional<std::string> marketVariant;
+  std::optional<WireVariantData> variantData;
   std::optional<bool> isNegRisk;
   std::optional<bool> isYieldBearing;
   std::optional<bool> isVisible;
@@ -274,6 +293,42 @@ Result<BestQuote> convert_best_quote(const WireBestQuote &wire,
   return BestQuote{price.value(), size.value()};
 }
 
+Result<std::optional<CryptoUpDownVariantData>>
+convert_crypto_variant(const std::optional<WireVariantData> &wire,
+                       const DecodeLimits &limits, std::string field) {
+  if (!wire || !wire->type || *wire->type != "CRYPTO_UP_DOWN")
+    return std::optional<CryptoUpDownVariantData>{};
+
+  const auto strings_valid =
+      string_within_limit(*wire->type, limits) &&
+      (!wire->priceFeedProvider ||
+       string_within_limit(*wire->priceFeedProvider, limits)) &&
+      (!wire->priceFeedSymbol ||
+       string_within_limit(*wire->priceFeedSymbol, limits)) &&
+      (!wire->priceFeedId || string_within_limit(*wire->priceFeedId, limits));
+  if (!strings_valid)
+    return invalid("crypto variant string exceeds configured limit", field);
+
+  CryptoUpDownVariantData value;
+  value.type = *wire->type;
+  value.price_feed_provider = wire->priceFeedProvider;
+  value.price_feed_symbol = wire->priceFeedSymbol;
+  value.price_feed_id = wire->priceFeedId;
+  if (wire->startPrice) {
+    auto parsed = parse_decimal_raw(*wire->startPrice, field + ".startPrice");
+    if (!parsed)
+      return parsed.error();
+    value.start_price = parsed.value();
+  }
+  if (wire->endPrice) {
+    auto parsed = parse_decimal_raw(*wire->endPrice, field + ".endPrice");
+    if (!parsed)
+      return parsed.error();
+    value.end_price = parsed.value();
+  }
+  return std::optional<CryptoUpDownVariantData>{std::move(value)};
+}
+
 Result<Outcome> convert_outcome(const WireOutcome &wire, std::uint8_t precision,
                                 const DecodeLimits &limits, std::size_t index) {
   const auto prefix = "data[].outcomes[" + std::to_string(index) + "]";
@@ -360,6 +415,14 @@ Result<Market> convert_market(const WireMarket &wire,
   market.is_neg_risk = *wire.isNegRisk;
   market.is_yield_bearing = *wire.isYieldBearing;
   market.fee_rate_bps = *wire.feeRateBps;
+  market.category_slug = wire.categorySlug;
+  market.created_at = wire.createdAt;
+  market.market_variant = wire.marketVariant;
+  auto market_variant =
+      convert_crypto_variant(wire.variantData, limits, "data[].variantData");
+  if (!market_variant)
+    return market_variant.error();
+  market.crypto_up_down = std::move(market_variant.value());
   market.outcomes.reserve(wire.outcomes->size());
   for (std::size_t i = 0; i < wire.outcomes->size(); ++i) {
     auto outcome = convert_outcome((*wire.outcomes)[i],
@@ -395,7 +458,13 @@ Result<Category> convert_category(const WireCategory &wire,
       string_within_limit(*wire.slug, limits) &&
       string_within_limit(*wire.title, limits) &&
       (!wire.shortTitle || string_within_limit(*wire.shortTitle, limits)) &&
-      (!wire.description || string_within_limit(*wire.description, limits));
+      (!wire.description || string_within_limit(*wire.description, limits)) &&
+      (!wire.startsAt || string_within_limit(*wire.startsAt, limits)) &&
+      (!wire.endsAt || string_within_limit(*wire.endsAt, limits)) &&
+      (!wire.createdAt || string_within_limit(*wire.createdAt, limits)) &&
+      (!wire.publishedAt || string_within_limit(*wire.publishedAt, limits)) &&
+      (!wire.marketVariant ||
+       string_within_limit(*wire.marketVariant, limits));
   if (!strings_valid)
     return invalid("category string exceeds configured limit", "data[]");
 
@@ -405,6 +474,16 @@ Result<Category> convert_category(const WireCategory &wire,
   category.title = *wire.title;
   category.short_title = wire.shortTitle;
   category.description = wire.description;
+  category.starts_at = wire.startsAt;
+  category.ends_at = wire.endsAt;
+  category.created_at = wire.createdAt;
+  category.published_at = wire.publishedAt;
+  category.market_variant = wire.marketVariant;
+  auto category_variant =
+      convert_crypto_variant(wire.variantData, limits, "data[].variantData");
+  if (!category_variant)
+    return category_variant.error();
+  category.crypto_up_down = std::move(category_variant.value());
   category.is_neg_risk = *wire.isNegRisk;
   category.is_yield_bearing = *wire.isYieldBearing;
   category.is_visible = *wire.isVisible;

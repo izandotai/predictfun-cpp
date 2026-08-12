@@ -17,6 +17,12 @@ struct Category {
   std::string title;
   std::optional<std::string> short_title;
   std::optional<std::string> description;
+  std::optional<std::string> starts_at;
+  std::optional<std::string> ends_at;
+  std::optional<std::string> created_at;
+  std::optional<std::string> published_at;
+  std::optional<std::string> market_variant;
+  std::optional<CryptoUpDownVariantData> crypto_up_down;
   bool is_neg_risk{false};
   bool is_yield_bearing{false};
   bool is_visible{false};

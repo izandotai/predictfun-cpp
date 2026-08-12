@@ -85,6 +85,39 @@ void test_markets_fixture() {
   CHECK(market.outcomes[1].status->raw == "FUTURE_STATUS");
 }
 
+void test_crypto_category_fixture() {
+  auto result = predictfun::codec::decode_categories_response(
+      fixture("categories_crypto.json"));
+  CHECK(result);
+  if (!result)
+    return;
+  const auto &page = result.value();
+  CHECK(page.cursor && *page.cursor == "next-crypto-page");
+  CHECK(page.categories.size() == 1U);
+  const auto &category = page.categories.front();
+  CHECK(category.starts_at &&
+        *category.starts_at == "2026-08-13T07:00:00.000Z");
+  CHECK(category.ends_at &&
+        *category.ends_at == "2026-08-13T07:05:00.000Z");
+  CHECK(category.market_variant &&
+        *category.market_variant == "CRYPTO_UP_DOWN");
+  CHECK(category.crypto_up_down.has_value());
+  CHECK(category.crypto_up_down->price_feed_symbol &&
+        *category.crypto_up_down->price_feed_symbol == "BTCUSDT");
+  CHECK(!category.crypto_up_down->start_price.has_value());
+  CHECK(category.crypto_up_down->end_price &&
+        category.crypto_up_down->end_price->to_string() == "65000.25");
+  CHECK(category.markets.size() == 1U);
+  const auto &market = category.markets.front();
+  CHECK(market.category_slug && *market.category_slug == category.slug);
+  CHECK(market.market_variant &&
+        *market.market_variant == "CRYPTO_UP_DOWN");
+  CHECK(market.crypto_up_down && market.crypto_up_down->price_feed_id &&
+        *market.crypto_up_down->price_feed_id == "sanitized-feed-id");
+  CHECK(market.outcomes[0].name == "Up");
+  CHECK(market.outcomes[1].name == "Down");
+}
+
 void test_orderbook_fixture_and_no_view() {
   auto result = predictfun::codec::decode_orderbook_response(
       fixture("orderbook.json"), 2);
@@ -297,6 +330,7 @@ void test_category_and_timeseries_responses() {
 int main() {
   test_decimal();
   test_markets_fixture();
+  test_crypto_category_fixture();
   test_orderbook_fixture_and_no_view();
   test_empty_and_string_numeric_book();
   test_rejections_and_bounds();
