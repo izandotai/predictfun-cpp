@@ -1,5 +1,7 @@
 #pragma once
 
+#include "predictfun/chain/operations.hpp"
+#include "predictfun/chain/transaction.hpp"
 #include "predictfun/net/http.hpp"
 #include "predictfun/types/chain.hpp"
 
@@ -37,6 +39,26 @@ public:
   void async_transaction_receipt(std::string transaction_hash,
                                  net::RequestContext context,
                                  Handler<std::optional<TransactionReceipt>> handler);
+  void async_transaction_count(EvmAddress address, BlockTag block,
+                               net::RequestContext context,
+                               Handler<Uint256> handler);
+  void async_gas_price(net::RequestContext context, Handler<Uint256> handler);
+  void async_estimate_gas(EvmAddress from, UnsignedTransaction transaction,
+                          net::RequestContext context, Handler<Uint256> handler);
+  void async_populate_transaction(EvmAddress from,
+                                  UnsignedTransaction transaction,
+                                  net::RequestContext context,
+                                  Handler<PopulatedTransaction> handler);
+  void async_send_raw_transaction(RawTransaction transaction,
+                                  net::RequestContext context,
+                                  Handler<TransactionSubmission> handler);
+  void async_wait_transaction_receipt(
+      std::string transaction_hash, ReceiptWaitOptions options,
+      net::RequestContext context, Handler<TransactionReceipt> handler);
+  void async_execute_transaction(
+      EvmAddress from, UnsignedTransaction transaction,
+      TransactionDigestSigner signer, ReceiptWaitOptions options,
+      net::RequestContext context, Handler<TransactionExecution> handler);
 
   void async_erc20_balance(EvmAddress token, EvmAddress owner,
                            net::RequestContext context, Handler<Uint256> handler);
@@ -50,6 +72,17 @@ public:
                               EvmAddress operator_address,
                               net::RequestContext context,
                               Handler<bool> handler);
+
+  void async_check_approvals(EvmAddress owner,
+                             std::vector<ApprovalStep> steps,
+                             net::RequestContext context,
+                             Handler<std::vector<ApprovalCheck>> handler);
+  void async_run_approvals(
+      EvmAddress owner, EvmAddress transaction_sender,
+      std::vector<ApprovalStep> steps, RouteOptions route,
+      TransactionDigestSigner signer, ApprovalRunOptions options,
+      std::function<void(const ApprovalProgress &)> progress,
+      net::RequestContext context, Handler<ApprovalRunReport> handler);
 
 private:
   struct Impl;

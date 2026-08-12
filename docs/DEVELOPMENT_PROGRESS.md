@@ -12,7 +12,7 @@ Updated: 2026-08-12
 | P3 authentication/private read | complete | private REST, wallet WSS, reconciliation gate and `p3_boundary` tests |
 | P4 deterministic order builder | complete | official SDK/ethers golden vectors and local signer tests |
 | P5 trading/reconciliation | implementation complete | `trading`, `lifecycle`, match/order REST and `p5_boundary` tests |
-| P6 BNB wallet operations | in progress | deterministic chain/ABI gate complete; testnet receipt/balance gate pending |
+| P6 BNB wallet operations | implementation complete | deterministic transaction/approval gate complete; live testnet evidence pending |
 | P7 hardening/release | pending | fresh-clone Debug/Release matrix required |
 
 ## Completed P3 checklist
@@ -83,15 +83,20 @@ P4 provenance and constraints:
   exchange `cancelOrders`, independently checked against Foundry `cast`.
 - [x] Add explicit EOA/Predict Account routing; Predict Account calls are
   wrapped through Kernel `execute(bytes32,bytes)`.
-- [ ] Add gas/nonce estimation, raw transaction submission and receipt waiter.
-- [ ] Add optional local EIP-155 transaction signing plus external signer
+- [x] Add gas/nonce estimation, raw transaction submission and receipt waiter.
+- [x] Add optional local EIP-155 transaction signing plus external signer
   workflow.
-- [ ] Add approval check/run/progress orchestration.
+- [x] Add approval check/run/progress orchestration with the official
+  `MaxInt256` allowance threshold, deduplication and ordered progress.
+- [x] Preserve deterministic transaction bytes/hash across accepted and
+  ambiguous submissions; never blind-retry a response-lost mutation.
+- [x] Reconcile submission outcome through bounded receipt polling and retain
+  an explicit `outcome_unknown` result when confirmation cannot be proved.
 - [ ] Prove balance transitions and receipts on caller-authorized testnet.
 
 ## Next implementation step
 
-Complete the transaction execution half of P6: gas/nonce queries, local and
-external signing paths, raw submission with ambiguity-safe semantics, receipt
-waiting, and approval check/run progress. This remains inside predictfun-cpp;
-no PMT integration is introduced.
+Begin P7 without integrating PMT: add persistent reconciliation/restart
+examples, rate-budget and reconnect-storm hardening, fuzz/property tests,
+sanitizer coverage, installed-package consumer tests and the explicitly gated
+testnet operation harness.

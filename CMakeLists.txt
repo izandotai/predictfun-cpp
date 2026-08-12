@@ -315,6 +315,7 @@ add_library(predictfun_chain STATIC
     src/chain_approvals.cpp
     src/chain_client.cpp
     src/chain_operations.cpp
+    src/chain_transaction.cpp
 )
 add_library(predictfun::chain ALIAS predictfun_chain)
 target_compile_features(predictfun_chain PUBLIC cxx_std_20)
@@ -348,6 +349,22 @@ if(PREDICTFUN_BUILD_LOCAL_SIGNER)
         PRIVATE $<BUILD_INTERFACE:secp256k1_objs>
     )
     predictfun_enable_warnings(predictfun_local_signer)
+
+    add_library(predictfun_local_transaction_signer STATIC
+        src/chain_local_transaction_signer.cpp
+    )
+    add_library(predictfun::local_transaction_signer ALIAS
+        predictfun_local_transaction_signer)
+    target_compile_features(predictfun_local_transaction_signer PUBLIC cxx_std_20)
+    target_include_directories(predictfun_local_transaction_signer
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    )
+    target_link_libraries(predictfun_local_transaction_signer
+        PUBLIC predictfun::chain predictfun::local_signer
+    )
+    predictfun_enable_warnings(predictfun_local_transaction_signer)
 endif()
 
 set_target_properties(predictfun_types PROPERTIES EXPORT_NAME types)
@@ -365,6 +382,8 @@ set_target_properties(predictfun_chain PROPERTIES EXPORT_NAME chain)
 if(PREDICTFUN_BUILD_LOCAL_SIGNER)
     set_target_properties(predictfun_local_signer PROPERTIES
         EXPORT_NAME local_signer)
+    set_target_properties(predictfun_local_transaction_signer PROPERTIES
+        EXPORT_NAME local_transaction_signer)
 endif()
 
 set(PREDICTFUN_INSTALL_TARGETS
@@ -373,7 +392,8 @@ set(PREDICTFUN_INSTALL_TARGETS
     predictfun_private_wss predictfun_trading predictfun_lifecycle
     predictfun_order predictfun_chain)
 if(PREDICTFUN_BUILD_LOCAL_SIGNER)
-    list(APPEND PREDICTFUN_INSTALL_TARGETS predictfun_local_signer)
+    list(APPEND PREDICTFUN_INSTALL_TARGETS predictfun_local_signer
+        predictfun_local_transaction_signer)
 endif()
 install(TARGETS ${PREDICTFUN_INSTALL_TARGETS}
     EXPORT predictfunTargets
@@ -508,6 +528,19 @@ if(PREDICTFUN_BUILD_TESTS)
         )
         predictfun_enable_warnings(predictfun_local_signer_tests)
         add_test(NAME local_signer COMMAND predictfun_local_signer_tests)
+
+        add_executable(predictfun_chain_local_transaction_signer_tests
+            tests/chain_local_transaction_signer_tests.cpp
+        )
+        target_compile_features(predictfun_chain_local_transaction_signer_tests
+            PRIVATE cxx_std_20)
+        target_link_libraries(predictfun_chain_local_transaction_signer_tests
+            PRIVATE predictfun::local_transaction_signer
+        )
+        predictfun_enable_warnings(
+            predictfun_chain_local_transaction_signer_tests)
+        add_test(NAME chain_local_transaction_signer
+            COMMAND predictfun_chain_local_transaction_signer_tests)
     endif()
 
     add_executable(predictfun_http_transport_tests

@@ -2,6 +2,7 @@
 #include "predictfun/chain/approvals.hpp"
 #include "predictfun/chain/client.hpp"
 #include "predictfun/chain/operations.hpp"
+#include "predictfun/chain/transaction.hpp"
 
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/io_context.hpp>
@@ -36,10 +37,20 @@ public:
     responses_.emplace_back(std::move(response));
   }
 
+  void push_error(Error error) { responses_.emplace_back(std::move(error)); }
+
   void async_request(predictfun::net::HttpRequest request,
                      predictfun::net::RequestContext,
                      predictfun::net::ResponseHandler handler) override {
     requests.push_back(std::move(request));
+    if (responses_.empty()) {
+      boost::asio::dispatch(
+          executor_, [handler = std::move(handler)]() mutable {
+            handler(Error{ErrorCode::protocol_error,
+                          "scripted transport response queue is empty", {}});
+          });
+      return;
+    }
     auto response = std::move(responses_.front());
     responses_.pop_front();
     boost::asio::dispatch(executor_,
@@ -62,6 +73,12 @@ predictfun::net::HttpResponse response(std::string body) {
 
 predictfun::EvmAddress address(const char *value) {
   return predictfun::EvmAddress::parse(value).value();
+}
+
+std::string test_signature() {
+  return "0x1ebae66eb3210bac186541adc014901901824101c270aa8cc18bd73dea004af9"
+         "02727dc5cf3af0e3c7315b7f5b6fb93f85c4857b080c0740c39e054d8296c7d3"
+         "1b";
 }
 
 void test_abi() {
@@ -196,6 +213,36 @@ void test_cancel_operations() {
   CHECK(empty && !empty.value());
 }
 
+void test_legacy_transaction_vector() {
+  using namespace predictfun;
+  using namespace predictfun::chain;
+  PopulatedTransaction transaction{
+      ChainId::bnb_testnet,
+      address("0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"),
+      address("0x1111111111111111111111111111111111111111"),
+      Uint256::parse("7").value(), Uint256::parse("3000000000").value(),
+      Uint256::parse("52500").value(), Uint256::parse("12345").value(),
+      "0x12345678"};
+  auto digest = legacy_transaction_signing_digest(transaction);
+  CHECK(digest && predictfun::order::to_hex(digest.value()) ==
+                      "0x1cb15f96a4188a1ccf6780993245029becb217d8e1f8038d8cb6692e65ae9693");
+  auto signed_transaction = sign_legacy_transaction(
+      transaction, [](const Hash32 &) -> Result<std::string> {
+        return test_signature();
+      });
+  CHECK(signed_transaction);
+  CHECK(signed_transaction && signed_transaction.value().bytes ==
+      "0xf86a0784b2d05e0082cd149411111111111111111111111111111111111111118230"
+      "39841234567881e5a01ebae66eb3210bac186541adc014901901824101c270aa8cc1"
+      "8bd73dea004af9a002727dc5cf3af0e3c7315b7f5b6fb93f85c4857b080c0740c3"
+      "9e054d8296c7d3");
+  CHECK(signed_transaction && signed_transaction.value().transaction_hash ==
+      "0xc65b76f46f76e6b2bc50848eff6ec36d96799e033c8c2486ebff9762603016f5");
+  CHECK(signed_transaction &&
+        raw_transaction_hash(signed_transaction.value().bytes).value() ==
+            signed_transaction.value().transaction_hash);
+}
+
 void test_chain_client() {
   boost::asio::io_context io;
   auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
@@ -244,6 +291,194 @@ void test_wrong_chain() {
   CHECK(transport->requests.size() == 1U);
 }
 
+void test_transaction_execution_client() {
+  using namespace predictfun;
+  using namespace predictfun::chain;
+  boost::asio::io_context io;
+  auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
+  transport->push(response(R"({"jsonrpc":"2.0","id":1,"result":"0x61"})"));
+  transport->push(response(R"({"jsonrpc":"2.0","id":2,"result":"0x7"})"));
+  transport->push(response(R"({"jsonrpc":"2.0","id":3,"result":"0xb2d05e00"})"));
+  transport->push(response(R"({"jsonrpc":"2.0","id":4,"result":"0x5208"})"));
+  ClientOptions options;
+  options.expected_chain_id = ChainId::bnb_testnet;
+  options.endpoint = RpcEndpoint{"rpc.example", "443", "/", true};
+  ChainClient client(io.get_executor(), transport, options);
+  std::optional<PopulatedTransaction> populated;
+  client.async_populate_transaction(
+      address("0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"),
+      UnsignedTransaction{
+          address("0x1111111111111111111111111111111111111111"),
+          "0x12345678", Uint256::parse("12345").value()},
+      net::RequestContext::with_timeout(std::chrono::seconds{1}),
+      [&](Result<PopulatedTransaction> result) {
+        CHECK(result);
+        if (result) populated = std::move(result.value());
+      });
+  io.run();
+  CHECK(populated && populated->nonce.to_string() == "7");
+  CHECK(populated && populated->gas_price.to_string() == "3000000000");
+  CHECK(populated && populated->gas_limit.to_string() == "26250");
+  CHECK(transport->requests.size() == 4U);
+  CHECK(transport->requests[1].body.find("eth_getTransactionCount") !=
+        std::string::npos);
+  CHECK(transport->requests[3].body.find("eth_estimateGas") !=
+        std::string::npos);
+
+  const RawTransaction raw{
+      "0xf86a0784b2d05e0082cd149411111111111111111111111111111111111111118230"
+      "39841234567881e5a01ebae66eb3210bac186541adc014901901824101c270aa8cc1"
+      "8bd73dea004af9a002727dc5cf3af0e3c7315b7f5b6fb93f85c4857b080c0740c3"
+      "9e054d8296c7d3",
+      "0xc65b76f46f76e6b2bc50848eff6ec36d96799e033c8c2486ebff9762603016f5"};
+  transport->push(response(
+      R"({"jsonrpc":"2.0","id":5,"result":"0xC65B76F46F76E6B2BC50848EFF6EC36D96799E033C8C2486EBFF9762603016F5"})"));
+  io.restart();
+  bool accepted = false;
+  client.async_send_raw_transaction(
+      raw, net::RequestContext::with_timeout(std::chrono::seconds{1}),
+      [&](Result<TransactionSubmission> result) {
+        CHECK(result && result.value().state ==
+                            TransactionSubmissionState::accepted);
+        accepted = static_cast<bool>(result);
+      });
+  io.run();
+  CHECK(accepted);
+
+  transport->push_error(
+      Error{ErrorCode::read_failure, "simulated lost response", {}});
+  io.restart();
+  bool ambiguous = false;
+  client.async_send_raw_transaction(
+      raw, net::RequestContext::with_timeout(std::chrono::seconds{1}),
+      [&](Result<TransactionSubmission> result) {
+        CHECK(result && result.value().state ==
+                            TransactionSubmissionState::ambiguous);
+        CHECK(result && result.value().transaction_hash ==
+                            raw.transaction_hash);
+        ambiguous = static_cast<bool>(result);
+      });
+  io.run();
+  CHECK(ambiguous);
+
+  transport->push(response(R"({"jsonrpc":"2.0","id":7,"result":null})"));
+  transport->push(response(
+      R"({"jsonrpc":"2.0","id":8,"result":{"transactionHash":"0xC65B76F46F76E6B2BC50848EFF6EC36D96799E033C8C2486EBFF9762603016F5","blockHash":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","blockNumber":"0x10","status":"0x1","gasUsed":"0x5208","effectiveGasPrice":"0xb2d05e00"}})"));
+  io.restart();
+  bool confirmed = false;
+  client.async_wait_transaction_receipt(
+      raw.transaction_hash, ReceiptWaitOptions{std::chrono::milliseconds{1}},
+      net::RequestContext::with_timeout(std::chrono::seconds{1}),
+      [&](Result<TransactionReceipt> result) {
+        CHECK(result && result.value().confirmed_success());
+        confirmed = static_cast<bool>(result);
+      });
+  io.run();
+  CHECK(confirmed);
+}
+
+void test_approval_checks_and_run() {
+  using namespace predictfun;
+  using namespace predictfun::chain;
+  const auto owner =
+      address("0x7e5f4552091a69125d5dfcb7b8c2659029395bdf");
+  auto planned = approval_steps(
+      ChainId::bnb_testnet,
+      ApprovalScope{ApprovalOperation::trade, false, false,
+                    ApprovalTradeSide::buy});
+  CHECK(planned && planned.value().size() == 1U);
+  if (!planned || planned.value().empty()) return;
+  const auto step = planned.value().front();
+
+  {
+    boost::asio::io_context io;
+    auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
+    transport->push(response(R"({"jsonrpc":"2.0","id":1,"result":"0x61"})"));
+    transport->push(response(
+        R"({"jsonrpc":"2.0","id":2,"result":"0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"})"));
+    ClientOptions options;
+    options.expected_chain_id = ChainId::bnb_testnet;
+    options.endpoint = RpcEndpoint{"rpc.example", "443", "/", true};
+    ChainClient client(io.get_executor(), transport, options);
+    bool checked = false;
+    client.async_check_approvals(
+        owner, {step},
+        net::RequestContext::with_timeout(std::chrono::seconds{1}),
+        [&](Result<std::vector<ApprovalCheck>> result) {
+          checked = true;
+          CHECK(result && result.value().size() == 1U);
+          CHECK(result && result.value()[0].satisfied);
+          CHECK(result && result.value()[0].allowance &&
+                result.value()[0].allowance->to_string() ==
+                    "57896044618658097711785492504343953926634992332820282019728792003956564819967");
+        });
+    io.run();
+    CHECK(checked);
+  }
+
+  auto unsigned_approval = approval_transaction(step);
+  CHECK(unsigned_approval);
+  if (!unsigned_approval) return;
+  PopulatedTransaction populated{
+      ChainId::bnb_testnet, owner, unsigned_approval.value().to,
+      Uint256::parse("0").value(), Uint256::parse("3000000000").value(),
+      Uint256::parse("26250").value(), Uint256{},
+      unsigned_approval.value().data};
+  auto expected_raw = sign_legacy_transaction(
+      populated,
+      [](const Hash32 &) -> Result<std::string> { return test_signature(); });
+  CHECK(expected_raw);
+  if (!expected_raw) return;
+
+  boost::asio::io_context io;
+  auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
+  transport->push(response(R"({"jsonrpc":"2.0","id":1,"result":"0x61"})"));
+  transport->push(response(
+      R"({"jsonrpc":"2.0","id":2,"result":"0x0000000000000000000000000000000000000000000000000000000000000000"})"));
+  transport->push(response(R"({"jsonrpc":"2.0","id":3,"result":"0x0"})"));
+  transport->push(response(R"({"jsonrpc":"2.0","id":4,"result":"0xb2d05e00"})"));
+  transport->push(response(R"({"jsonrpc":"2.0","id":5,"result":"0x5208"})"));
+  transport->push(response(std::format(
+      R"({{"jsonrpc":"2.0","id":6,"result":"{}"}})",
+      expected_raw.value().transaction_hash)));
+  transport->push(response(std::format(
+      R"({{"jsonrpc":"2.0","id":7,"result":{{"transactionHash":"{}","blockNumber":"0x10","status":"0x1","gasUsed":"0x5208","effectiveGasPrice":"0xb2d05e00"}}}})",
+      expected_raw.value().transaction_hash)));
+
+  ClientOptions options;
+  options.expected_chain_id = ChainId::bnb_testnet;
+  options.endpoint = RpcEndpoint{"rpc.example", "443", "/", true};
+  ChainClient client(io.get_executor(), transport, options);
+  std::vector<ApprovalProgressState> progress;
+  bool completed = false;
+  client.async_run_approvals(
+      owner, owner, {step, step}, RouteOptions{},
+      [](const Hash32 &) -> Result<std::string> { return test_signature(); },
+      ApprovalRunOptions{true, true,
+                         ReceiptWaitOptions{std::chrono::milliseconds{1}}},
+      [&](const ApprovalProgress &update) {
+        progress.push_back(update.state);
+      },
+      net::RequestContext::with_timeout(std::chrono::seconds{1}),
+      [&](Result<ApprovalRunReport> result) {
+        completed = true;
+        CHECK(result && result.value().success);
+        CHECK(result && result.value().steps.size() == 1U);
+        CHECK(result && result.value().steps[0].state ==
+                            ApprovalProgressState::confirmed);
+        CHECK(result && result.value().steps[0].transaction &&
+              result.value().steps[0].transaction->confirmed_success());
+      });
+  io.run();
+  CHECK(completed);
+  CHECK(progress.size() == 3U);
+  CHECK(progress.size() == 3U &&
+        progress[0] == ApprovalProgressState::checking &&
+        progress[1] == ApprovalProgressState::submitting &&
+        progress[2] == ApprovalProgressState::confirmed);
+  CHECK(transport->requests.size() == 7U);
+}
+
 } // namespace
 
 int main() {
@@ -251,8 +486,11 @@ int main() {
   test_approval_plan();
   test_position_operations();
   test_cancel_operations();
+  test_legacy_transaction_vector();
   test_chain_client();
   test_wrong_chain();
+  test_transaction_execution_client();
+  test_approval_checks_and_run();
   if (failures != 0) {
     std::cerr << failures << " chain test(s) failed\n";
     return 1;

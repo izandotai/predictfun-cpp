@@ -75,7 +75,7 @@ reconciliation and ambiguous-submit quarantine pass the Debug suite. The live
 testnet acceptance scenario remains part of the final release matrix because
 it requires an explicitly funded caller-owned account.
 
-### P6: BNB-chain wallet operations
+### P6: BNB-chain wallet operations - deterministic implementation complete
 
 - Typed JSON-RPC transport, chain-id validation and receipt tracking.
 - Official contract addresses/ABIs with versioned provenance.
@@ -86,6 +86,13 @@ it requires an explicitly funded caller-owned account.
 
 Gate: testnet receipts and post-transaction balances prove every operation;
 wrong-chain, revert, replacement and timeout paths are covered.
+
+The deterministic implementation gate is complete: chain validation,
+balance/allowance reads, operation-scoped approval checks/runs, EIP-155 legacy
+transaction signing, gas/nonce population, raw submission, ambiguous-response
+reconciliation, receipt waiting and EOA/Predict Account routing pass the local
+Debug suite. Live testnet receipt and post-balance evidence remains in the
+caller-authorized final release matrix.
 
 ### P7: production hardening and release
 

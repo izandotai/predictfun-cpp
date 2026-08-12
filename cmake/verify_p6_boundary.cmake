@@ -6,10 +6,13 @@ file(READ "${ROOT}/include/predictfun/chain/abi.hpp" ABI)
 file(READ "${ROOT}/src/chain_abi.cpp" ABI_IMPLEMENTATION)
 file(READ "${ROOT}/include/predictfun/chain/operations.hpp" OPERATIONS)
 file(READ "${ROOT}/src/chain_operations.cpp" OPERATIONS_IMPLEMENTATION)
+file(READ "${ROOT}/include/predictfun/chain/transaction.hpp" TRANSACTION)
+file(READ "${ROOT}/src/chain_transaction.cpp" TRANSACTION_IMPLEMENTATION)
 
 set(P6_CHAIN_BOUNDARY
     "${CLIENT}${IMPLEMENTATION}${APPROVALS}${APPROVALS_IMPLEMENTATION}"
-    "${ABI}${ABI_IMPLEMENTATION}${OPERATIONS}${OPERATIONS_IMPLEMENTATION}")
+    "${ABI}${ABI_IMPLEMENTATION}${OPERATIONS}${OPERATIONS_IMPLEMENTATION}"
+    "${TRANSACTION}${TRANSACTION_IMPLEMENTATION}")
 
 foreach(FORBIDDEN ".env" "getenv(" "PRIVATE_KEY" "mnemonic" "eth_sendTransaction")
   string(FIND "${P6_CHAIN_BOUNDARY}" "${FORBIDDEN}" FOUND)
