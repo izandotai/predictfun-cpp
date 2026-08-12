@@ -185,7 +185,19 @@ void test_rejections_and_bounds() {
 
   constexpr auto unsorted =
       R"({"success":true,"data":{"marketId":1,"updateTimestampMs":1,"asks":[[0.20,1],[0.10,1]],"bids":[]}})";
-  CHECK(!predictfun::codec::decode_orderbook_response(unsorted, 2));
+  const auto sorted = predictfun::codec::decode_orderbook_response(unsorted, 2);
+  CHECK(sorted);
+  CHECK(sorted && sorted.value().yes_asks.size() == 2U &&
+        sorted.value().yes_asks[0].price.ticks() == 10U &&
+        sorted.value().yes_asks[1].price.ticks() == 20U);
+
+  constexpr auto duplicated =
+      R"({"success":true,"data":{"marketId":1,"updateTimestampMs":1,"asks":[[0.20,"1.25"],[0.10,1],[0.20,"2.5"]],"bids":[]}})";
+  const auto merged = predictfun::codec::decode_orderbook_response(duplicated, 2);
+  CHECK(merged);
+  CHECK(merged && merged.value().yes_asks.size() == 2U &&
+        merged.value().yes_asks[1].price.ticks() == 20U &&
+        merged.value().yes_asks[1].quantity.to_string() == "3.75");
 
   constexpr auto crossed =
       R"({"success":true,"data":{"marketId":1,"updateTimestampMs":1,"asks":[[0.50,1]],"bids":[[0.50,1]]}})";

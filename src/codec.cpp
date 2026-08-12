@@ -552,19 +552,36 @@ convert_levels(const std::vector<std::array<glz::raw_json, 2>> &wire,
                                field + "[" + std::to_string(i) + "]");
     if (!level)
       return level.error();
-    if (!levels.empty()) {
-      const auto previous = levels.back().price.ticks();
-      const auto current = level.value().price.ticks();
-      const bool valid_order =
-          ascending ? current > previous : current < previous;
-      if (!valid_order) {
-        return Error{ErrorCode::invalid_orderbook,
-                     "book prices are unsorted or duplicated", field};
-      }
-    }
     levels.push_back(std::move(level.value()));
   }
-  return levels;
+  std::ranges::sort(levels, [ascending](const PriceLevel &left,
+                                       const PriceLevel &right) {
+    return ascending ? left.price.ticks() < right.price.ticks()
+                     : left.price.ticks() > right.price.ticks();
+  });
+
+  std::vector<PriceLevel> normalized;
+  normalized.reserve(levels.size());
+  for (auto &level : levels) {
+    if (normalized.empty() ||
+        normalized.back().price.ticks() != level.price.ticks()) {
+      normalized.push_back(std::move(level));
+      continue;
+    }
+    const auto scale =
+        std::max(normalized.back().quantity.scale(), level.quantity.scale());
+    auto left = normalized.back().quantity.rescale_exact(scale);
+    auto right = level.quantity.rescale_exact(scale);
+    if (!left || !right ||
+        right.value().units() >
+            std::numeric_limits<std::uint64_t>::max() - left.value().units()) {
+      return Error{ErrorCode::invalid_quantity,
+                   "duplicate book quantity aggregation overflowed", field};
+    }
+    normalized.back().quantity =
+        FixedDecimal{left.value().units() + right.value().units(), scale};
+  }
+  return normalized;
 }
 
 Result<LastOrderSettled> convert_last_order(const WireLastOrderSettled &wire,
