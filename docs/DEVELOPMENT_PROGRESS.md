@@ -11,7 +11,7 @@ Updated: 2026-08-12
 | P2 public WebSocket | complete | WSS codec/client/transport and `p2_boundary` tests |
 | P3 authentication/private read | complete | private REST, wallet WSS, reconciliation gate and `p3_boundary` tests |
 | P4 deterministic order builder | complete | official SDK/ethers golden vectors and local signer tests |
-| P5 trading/reconciliation | pending | testnet mutation gate required |
+| P5 trading/reconciliation | implementation complete | `trading`, `lifecycle`, match/order REST and `p5_boundary` tests |
 | P6 BNB wallet operations | pending | testnet receipt/balance gate required |
 | P7 hardening/release | pending | fresh-clone Debug/Release matrix required |
 
@@ -57,9 +57,24 @@ P4 provenance and constraints:
   helper: insufficient visible depth is rejected instead of silently building
   an order from a partial book.
 
+## Completed P5 checklist
+
+- [x] Add typed create-order and remove-order mutation codecs and clients.
+- [x] Keep mutations single-attempt; never infer failure from a timeout.
+- [x] Use the deterministic order hash as the correlation/idempotency key.
+- [x] Add authenticated order-by-hash lookup for submit reconciliation.
+- [x] Add typed match-event query/decode support.
+- [x] Track accepted/open/partial/filled/removed/cancelled/expired/rejected,
+  transaction and ambiguous states.
+- [x] Require a complete REST snapshot after every private-stream generation.
+- [x] Treat order-book removal as nonterminal because it is not an on-chain
+  cancellation.
+- [x] Compile and pass the complete 20-test Debug matrix.
+
 ## Next implementation step
 
-Implement P5 mutation codecs and the trading state machine: create/cancel,
-deterministic order correlation, bounded non-blind retry and ambiguous-submit
-quarantine. This remains inside predictfun-cpp; no PMT integration is
-introduced.
+Implement P6 as a separately linkable BNB-chain layer: bounded typed JSON-RPC,
+chain-id verification, ABI call/transaction builders, balances/allowances,
+approval planning and receipt tracking first; then standard, negative-risk and
+yield-bearing split/merge/convert/redeem plus on-chain cancellation. This
+remains inside predictfun-cpp; no PMT integration is introduced.

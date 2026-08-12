@@ -43,6 +43,7 @@ enum class ErrorCode {
   too_many_items,
   invalid_orderbook,
   venue_rejected,
+  ambiguous_submission,
 };
 
 struct Error {

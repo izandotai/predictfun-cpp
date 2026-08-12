@@ -179,6 +179,35 @@ Result<std::string> latest_timeseries_target(MarketId market_id,
   return target;
 }
 
+Result<std::string> matches_target(const MatchesQuery &query) {
+  if (query.first && (*query.first == 0U || *query.first > 1'000U))
+    return Error{ErrorCode::invalid_argument,
+                 "first must be between 1 and 1000", "first"};
+  if (query.category && !safe_token(*query.category))
+    return Error{ErrorCode::invalid_argument, "invalid category", "category"};
+  if (query.market_id && query.market_id->value == 0U)
+    return Error{ErrorCode::invalid_argument,
+                 "market id must be positive", "market_id"};
+  if (query.signer_address && query.signer_address->empty())
+    return Error{ErrorCode::invalid_argument,
+                 "signer address must not be zero", "signer_address"};
+  auto target = std::string{"/v1/orders/matches"};
+  if (query.first) add_query(target, "first", std::to_string(*query.first));
+  if (query.after) add_query(target, "after", *query.after);
+  if (query.category) add_query(target, "category", *query.category);
+  if (query.market_id)
+    add_query(target, "marketId", std::to_string(query.market_id->value));
+  if (query.min_value_usdt_wei)
+    add_query(target, "minValueUsdtWei",
+              query.min_value_usdt_wei->to_string());
+  if (query.signer_address)
+    add_query(target, "signerAddress", query.signer_address->to_string());
+  if (query.is_signer_maker)
+    add_query(target, "isSignerMaker",
+              *query.is_signer_maker ? "true" : "false");
+  return target;
+}
+
 } // namespace protocol
 
 struct PublicRestClient::Impl : public std::enable_shared_from_this<Impl> {
@@ -467,6 +496,19 @@ void PublicRestClient::async_get_latest_timeseries(
                  return handler(raw.error());
                handler(codec::decode_latest_timeseries_response(
                    raw.value().body, limits));
+             });
+}
+
+void PublicRestClient::async_get_matches(MatchesQuery query,
+                                         net::RequestContext context,
+                                         Handler<MatchesPage> handler) {
+  const auto limits = impl_->options.decode_limits;
+  impl_->get("matches", protocol::matches_target(query), std::move(context),
+             [handler = std::move(handler),
+              limits](Result<net::HttpResponse> raw) mutable {
+               if (!raw) return handler(raw.error());
+               handler(codec::decode_matches_response(raw.value().body,
+                                                       limits));
              });
 }
 

@@ -49,6 +49,7 @@ struct ActivityQuery : PageQuery {
 namespace protocol {
 [[nodiscard]] Result<std::string> positions_target(const PositionsQuery &query);
 [[nodiscard]] Result<std::string> orders_target(const OrdersQuery &query);
+[[nodiscard]] Result<std::string> order_target(std::string_view hash);
 [[nodiscard]] Result<std::string> activity_target(const ActivityQuery &query);
 } // namespace protocol
 
@@ -71,6 +72,8 @@ public:
                            Handler<PositionsPage> handler);
   void async_get_orders(OrdersQuery query, net::RequestContext context,
                         Handler<OrdersPage> handler);
+  void async_get_order(std::string hash, net::RequestContext context,
+                       Handler<OrderRecord> handler);
   void async_get_activity(ActivityQuery query, net::RequestContext context,
                           Handler<ActivityPage> handler);
 

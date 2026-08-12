@@ -116,6 +116,42 @@ struct WireTimeseriesLatestResponse {
   std::optional<bool> success;
 };
 
+struct WireMatchFee {
+  std::optional<glz::raw_json> amount;
+  std::optional<std::string> type;
+};
+
+struct WirePrivateOutcome {
+  std::optional<std::string> name;
+  std::optional<std::uint64_t> indexSet;
+  std::optional<glz::raw_json> onChainId;
+};
+
+struct WireMatchLeg {
+  std::optional<std::string> quoteType;
+  std::optional<glz::raw_json> amount;
+  std::optional<glz::raw_json> price;
+  std::optional<glz::raw_json> outcome;
+  std::optional<std::string> signer;
+  std::optional<WireMatchFee> fee;
+};
+
+struct WireMatch {
+  std::optional<glz::raw_json> market;
+  std::optional<WireMatchLeg> taker;
+  std::optional<glz::raw_json> amountFilled;
+  std::optional<glz::raw_json> priceExecuted;
+  std::optional<std::vector<WireMatchLeg>> makers;
+  std::optional<std::string> transactionHash;
+  std::optional<std::string> executedAt;
+};
+
+struct WireMatchesResponse {
+  std::optional<bool> success;
+  std::optional<std::string> cursor;
+  std::optional<std::vector<WireMatch>> data;
+};
+
 struct WireLastOrderSettled {
   std::optional<std::string> id;
   std::optional<std::string> kind;
@@ -258,6 +294,74 @@ Result<FixedDecimal> parse_decimal_raw(const glz::raw_json &raw,
     return error;
   }
   return parsed.value();
+}
+
+Result<ExactDecimal> parse_exact_raw(const glz::raw_json &raw,
+                                     std::string field) {
+  std::string unquoted;
+  const auto text = unquote_raw(raw, unquoted);
+  auto parsed = ExactDecimal::parse(text);
+  if (!parsed) {
+    auto error = parsed.error();
+    error.field = std::move(field);
+    return error;
+  }
+  return parsed.value();
+}
+
+Result<PrivateOutcome> convert_private_outcome(const glz::raw_json &raw,
+                                               std::string prefix) {
+  WirePrivateOutcome wire;
+  const auto error = glz::read<read_options>(wire, std::string_view{raw.str});
+  if (error)
+    return invalid("match outcome contains malformed JSON", std::move(prefix));
+  PrivateOutcome outcome;
+  outcome.name = wire.name;
+  outcome.index_set = wire.indexSet;
+  if (wire.onChainId) {
+    std::string unquoted;
+    const auto text = unquote_raw(*wire.onChainId, unquoted);
+    auto id = Uint256::parse(text);
+    if (!id) {
+      auto parse_error = id.error();
+      parse_error.field = prefix + ".onChainId";
+      return parse_error;
+    }
+    outcome.on_chain_id = std::move(id.value());
+  }
+  return outcome;
+}
+
+Result<MatchOrderLeg> convert_match_leg(const WireMatchLeg &wire,
+                                        std::string prefix) {
+  if (!wire.quoteType) return missing(prefix + ".quoteType");
+  if (!wire.amount) return missing(prefix + ".amount");
+  if (!wire.price) return missing(prefix + ".price");
+  if (!wire.outcome) return missing(prefix + ".outcome");
+  if (!wire.signer) return missing(prefix + ".signer");
+  auto amount = parse_exact_raw(*wire.amount, prefix + ".amount");
+  auto price = parse_exact_raw(*wire.price, prefix + ".price");
+  auto outcome = convert_private_outcome(*wire.outcome, prefix + ".outcome");
+  auto signer = EvmAddress::parse(*wire.signer);
+  if (!amount) return amount.error();
+  if (!price) return price.error();
+  if (!outcome) return outcome.error();
+  if (!signer) {
+    auto error = signer.error();
+    error.field = prefix + ".signer";
+    return error;
+  }
+  MatchOrderLeg leg{*wire.quoteType, std::move(amount.value()),
+                    std::move(price.value()), std::move(outcome.value()),
+                    signer.value(), {}};
+  if (wire.fee) {
+    if (!wire.fee->amount) return missing(prefix + ".fee.amount");
+    if (!wire.fee->type) return missing(prefix + ".fee.type");
+    auto fee = parse_exact_raw(*wire.fee->amount, prefix + ".fee.amount");
+    if (!fee) return fee.error();
+    leg.fee = MatchFee{std::move(fee.value()), *wire.fee->type};
+  }
+  return leg;
 }
 
 Result<Price> parse_price_raw(const glz::raw_json &raw, std::uint8_t precision,
@@ -908,6 +1012,64 @@ decode_latest_timeseries_response(std::string_view json,
   if (!wire.data)
     return missing("data");
   return convert_timeseries_point(*wire.data, "data");
+}
+
+Result<MatchesPage> decode_matches_response(std::string_view json,
+                                            const DecodeLimits &limits) {
+  auto parsed = parse_wire<WireMatchesResponse>(json, limits);
+  if (!parsed) return parsed.error();
+  const auto &wire = parsed.value();
+  if (!wire.success) return missing("success");
+  if (!*wire.success)
+    return Error{ErrorCode::venue_rejected,
+                 "Predict.fun returned success=false", "success"};
+  if (!wire.data) return missing("data");
+  if (wire.data->size() > limits.max_matches)
+    return Error{ErrorCode::too_many_items,
+                 "match page exceeds configured item limit", "data"};
+  MatchesPage page{wire.cursor, {}};
+  page.matches.reserve(wire.data->size());
+  for (std::size_t index = 0; index < wire.data->size(); ++index) {
+    const auto &item = (*wire.data)[index];
+    const auto prefix = "data[" + std::to_string(index) + "]";
+    if (!item.market) return missing(prefix + ".market");
+    if (!item.taker) return missing(prefix + ".taker");
+    if (!item.amountFilled) return missing(prefix + ".amountFilled");
+    if (!item.priceExecuted) return missing(prefix + ".priceExecuted");
+    if (!item.makers) return missing(prefix + ".makers");
+    if (!item.transactionHash) return missing(prefix + ".transactionHash");
+    if (!item.executedAt) return missing(prefix + ".executedAt");
+    if (item.makers->size() > limits.max_makers_per_match)
+      return Error{ErrorCode::too_many_items, "too many maker legs",
+                   prefix + ".makers"};
+    std::string market_envelope{R"({"success":true,"data":)"};
+    market_envelope.append(item.market->str);
+    market_envelope.push_back('}');
+    auto market = decode_market_response(market_envelope, limits);
+    auto taker = convert_match_leg(*item.taker, prefix + ".taker");
+    auto amount = parse_exact_raw(*item.amountFilled,
+                                  prefix + ".amountFilled");
+    auto price = parse_exact_raw(*item.priceExecuted,
+                                 prefix + ".priceExecuted");
+    if (!market) return market.error();
+    if (!taker) return taker.error();
+    if (!amount) return amount.error();
+    if (!price) return price.error();
+    MatchEvent event{std::move(market.value()), std::move(taker.value()),
+                     std::move(amount.value()), std::move(price.value()), {},
+                     *item.transactionHash, *item.executedAt};
+    event.makers.reserve(item.makers->size());
+    for (std::size_t maker_index = 0; maker_index < item.makers->size();
+         ++maker_index) {
+      auto maker = convert_match_leg(
+          (*item.makers)[maker_index],
+          prefix + ".makers[" + std::to_string(maker_index) + "]");
+      if (!maker) return maker.error();
+      event.makers.push_back(std::move(maker.value()));
+    }
+    page.matches.push_back(std::move(event));
+  }
+  return page;
 }
 
 } // namespace predictfun::codec

@@ -89,6 +89,10 @@ constexpr auto market_json = R"({
   }
 })";
 
+std::string match_json() {
+  return R"({"success":true,"cursor":"next","data":[{"market":{"id":42,"title":"BTC Up or Down","question":"Will BTC finish up?","tradingStatus":"OPEN","status":"REGISTERED","decimalPrecision":2,"isNegRisk":false,"isYieldBearing":false,"feeRateBps":100,"outcomes":[]},"taker":{"quoteType":"Ask","amount":"2.5","price":"0.60","outcome":{"name":"Up","indexSet":1,"onChainId":"123"},"signer":"0x1111111111111111111111111111111111111111","fee":{"amount":"0.01","type":"COLLATERAL"}},"amountFilled":"2.0","priceExecuted":"0.61","makers":[{"quoteType":"Bid","amount":"2.0","price":"0.61","outcome":{"name":"Up","indexSet":1,"onChainId":"123"},"signer":"0x2222222222222222222222222222222222222222","fee":{"amount":"0.02","type":"SHARES"}}],"transactionHash":"0xabc","executedAt":"2026-08-12T00:00:00Z"}]})";
+}
+
 HttpResponse response(int status, std::string body = {}) {
   HttpResponse value;
   value.status = status;
@@ -128,6 +132,53 @@ void test_protocol_targets() {
   CHECK(!protocol::timeseries_target(predictfun::MarketId{42U}, series));
   CHECK(!protocol::market_target(predictfun::MarketId{}));
   CHECK(!protocol::category_target("../secret"));
+
+  MatchesQuery matches;
+  matches.first = 20U;
+  matches.after = "cursor+/=";
+  matches.category = "crypto";
+  matches.market_id = predictfun::MarketId{42U};
+  matches.min_value_usdt_wei = predictfun::Uint256::parse("1000").value();
+  matches.signer_address = predictfun::EvmAddress::parse(
+      "0x1111111111111111111111111111111111111111").value();
+  matches.is_signer_maker = true;
+  const auto matches_target = protocol::matches_target(matches);
+  CHECK(matches_target);
+  CHECK(matches_target && matches_target.value() ==
+      "/v1/orders/matches?first=20&after=cursor%2B%2F%3D&category=crypto&marketId=42&minValueUsdtWei=1000&signerAddress=0x1111111111111111111111111111111111111111&isSignerMaker=true");
+}
+
+void test_matches_codec_and_client() {
+  const auto decoded = predictfun::codec::decode_matches_response(match_json());
+  CHECK(decoded);
+  CHECK(decoded && decoded.value().matches.size() == 1U);
+  CHECK(decoded && decoded.value().matches[0].makers.size() == 1U);
+  CHECK(decoded && decoded.value().matches[0].price_executed.to_string() ==
+                       "0.61");
+  CHECK(decoded && decoded.value().matches[0].taker.fee &&
+        decoded.value().matches[0].taker.fee->amount.to_string() == "0.01");
+
+  boost::asio::io_context io;
+  auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
+  transport->push(response(200, match_json()));
+  predictfun::public_rest::ClientOptions options;
+  options.environment = predictfun::Environment::bnb_mainnet;
+  options.api_key = [] { return "top-secret-key"; };
+  predictfun::public_rest::PublicRestClient client(io.get_executor(), transport,
+                                                   options);
+  predictfun::public_rest::MatchesQuery query;
+  query.market_id = predictfun::MarketId{42U};
+  std::optional<Result<predictfun::MatchesPage>> result;
+  client.async_get_matches(
+      query, RequestContext::with_timeout(std::chrono::seconds{1}),
+      [&result](Result<predictfun::MatchesPage> value) {
+        result.emplace(std::move(value));
+      });
+  io.run();
+  CHECK(result && *result);
+  CHECK(transport->requests.size() == 1U);
+  CHECK(!transport->requests.empty() &&
+        transport->requests[0].target == "/v1/orders/matches?marketId=42");
 }
 
 void test_api_key_is_header_only() {
@@ -291,6 +342,7 @@ int main() {
   test_retry_and_http_classification();
   test_rate_limiter_reservations();
   test_cancel_during_rate_wait();
+  test_matches_codec_and_client();
 
   if (failures != 0) {
     std::cerr << failures << " test assertion(s) failed\n";

@@ -3,6 +3,7 @@
 #include "predictfun/types/category.hpp"
 #include "predictfun/types/error.hpp"
 #include "predictfun/types/market.hpp"
+#include "predictfun/types/match.hpp"
 #include "predictfun/types/orderbook.hpp"
 #include "predictfun/types/timeseries.hpp"
 
@@ -19,6 +20,8 @@ struct DecodeLimits {
   std::size_t max_outcomes_per_market{256U};
   std::size_t max_book_levels_per_side{20'000U};
   std::size_t max_timeseries_points{100'000U};
+  std::size_t max_matches{10'000U};
+  std::size_t max_makers_per_match{10'000U};
   std::size_t max_string_bytes{256U * 1024U};
 };
 
@@ -51,5 +54,9 @@ decode_timeseries_response(std::string_view json,
 [[nodiscard]] Result<TimeseriesPoint>
 decode_latest_timeseries_response(std::string_view json,
                                   const DecodeLimits &limits = {});
+
+[[nodiscard]] Result<MatchesPage>
+decode_matches_response(std::string_view json,
+                        const DecodeLimits &limits = {});
 
 } // namespace predictfun::codec

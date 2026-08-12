@@ -133,6 +133,7 @@ add_library(predictfun_codec STATIC
     src/codec.cpp
     src/auth_codec.cpp
     src/private_codec.cpp
+    src/trading_codec.cpp
     src/private_websocket_codec.cpp
     src/websocket_codec.cpp
 )
@@ -255,6 +256,34 @@ target_link_libraries(predictfun_private_wss
 )
 predictfun_enable_warnings(predictfun_private_wss)
 
+add_library(predictfun_trading STATIC
+    src/trading.cpp
+)
+add_library(predictfun::trading ALIAS predictfun_trading)
+target_compile_features(predictfun_trading PUBLIC cxx_std_20)
+target_include_directories(predictfun_trading
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+target_link_libraries(predictfun_trading
+    PUBLIC predictfun::codec predictfun::net
+)
+predictfun_enable_warnings(predictfun_trading)
+
+add_library(predictfun_lifecycle STATIC
+    src/lifecycle.cpp
+)
+add_library(predictfun::lifecycle ALIAS predictfun_lifecycle)
+target_compile_features(predictfun_lifecycle PUBLIC cxx_std_20)
+target_include_directories(predictfun_lifecycle
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+target_link_libraries(predictfun_lifecycle PUBLIC predictfun::types)
+predictfun_enable_warnings(predictfun_lifecycle)
+
 add_library(predictfun_order STATIC
     src/order_types.cpp
     src/order_amounts.cpp
@@ -309,6 +338,8 @@ set_target_properties(predictfun_public_wss PROPERTIES EXPORT_NAME public_wss)
 set_target_properties(predictfun_auth PROPERTIES EXPORT_NAME auth)
 set_target_properties(predictfun_private_rest PROPERTIES EXPORT_NAME private_rest)
 set_target_properties(predictfun_private_wss PROPERTIES EXPORT_NAME private_wss)
+set_target_properties(predictfun_trading PROPERTIES EXPORT_NAME trading)
+set_target_properties(predictfun_lifecycle PROPERTIES EXPORT_NAME lifecycle)
 set_target_properties(predictfun_order PROPERTIES EXPORT_NAME order)
 if(PREDICTFUN_BUILD_LOCAL_SIGNER)
     set_target_properties(predictfun_local_signer PROPERTIES
@@ -318,7 +349,8 @@ endif()
 set(PREDICTFUN_INSTALL_TARGETS
     predictfun_types predictfun_codec predictfun_net predictfun_public_rest
     predictfun_public_wss predictfun_auth predictfun_private_rest
-    predictfun_private_wss predictfun_order)
+    predictfun_private_wss predictfun_trading predictfun_lifecycle
+    predictfun_order)
 if(PREDICTFUN_BUILD_LOCAL_SIGNER)
     list(APPEND PREDICTFUN_INSTALL_TARGETS predictfun_local_signer)
 endif()
@@ -420,6 +452,19 @@ if(PREDICTFUN_BUILD_TESTS)
     predictfun_enable_warnings(predictfun_private_wss_tests)
     add_test(NAME private_wss COMMAND predictfun_private_wss_tests)
 
+    add_executable(predictfun_trading_tests tests/trading_tests.cpp)
+    target_compile_features(predictfun_trading_tests PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_trading_tests PRIVATE predictfun::trading)
+    predictfun_enable_warnings(predictfun_trading_tests)
+    add_test(NAME trading COMMAND predictfun_trading_tests)
+
+    add_executable(predictfun_lifecycle_tests tests/lifecycle_tests.cpp)
+    target_compile_features(predictfun_lifecycle_tests PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_lifecycle_tests
+        PRIVATE predictfun::lifecycle predictfun::codec)
+    predictfun_enable_warnings(predictfun_lifecycle_tests)
+    add_test(NAME lifecycle COMMAND predictfun_lifecycle_tests)
+
     add_executable(predictfun_order_tests tests/order_tests.cpp)
     target_compile_features(predictfun_order_tests PRIVATE cxx_std_20)
     target_link_libraries(predictfun_order_tests PRIVATE predictfun::order)
@@ -509,5 +554,11 @@ if(PREDICTFUN_BUILD_TESTS)
         COMMAND ${CMAKE_COMMAND}
             -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_p4_boundary.cmake
+    )
+    add_test(
+        NAME p5_boundary
+        COMMAND ${CMAKE_COMMAND}
+            -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_p5_boundary.cmake
     )
 endif()

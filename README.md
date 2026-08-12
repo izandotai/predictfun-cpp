@@ -2,7 +2,7 @@
 
 An independently layered C++20 client library for Predict.fun.
 
-The current foundation contains six independently linkable layers:
+The current SDK contains independently linkable authority layers:
 
 - `predictfun::types`: strong market, decimal, price, and order-book types;
 - `predictfun::codec`: bounded, strict JSON decoding for public market and
@@ -18,10 +18,18 @@ The current foundation contains six independently linkable layers:
   tracking, reconnect/resubscribe, and explicit resynchronization states;
 - `predictfun::auth`: bounded challenge/proof authentication with a
   caller-supplied asynchronous signer and move-only JWT ownership;
+- `predictfun::private_rest` and `predictfun::private_wss`: authenticated
+  account, activity, position, order and wallet-event reads;
+- `predictfun::order` and optional `predictfun::local_signer`: integer-only
+  order construction, EIP-712 hashing and caller-controlled signing;
+- `predictfun::trading`: single-attempt create/remove mutations with explicit
+  ambiguous-result semantics;
+- `predictfun::lifecycle`: private-event plus REST reconciliation state;
 - deterministic YES-to-NO order-book derivation using integer ticks.
 
-P3 authentication/private-read work is now in progress. The repository still
-has no order submission or BNB-chain mutation path. The optional mainnet API
+P0 through P5 are implemented and pass the deterministic Debug test matrix.
+BNB-chain wallet operations and production hardening remain in progress. The
+optional mainnet API
 key is supplied by the caller and is emitted
 only as an `x-api-key` header; the SDK does not read environment files and
 rejects credentials in request targets.

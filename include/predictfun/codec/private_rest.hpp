@@ -13,6 +13,8 @@ decode_account_response(std::string_view json, const DecodeLimits &limits = {});
 decode_positions_response(std::string_view json, const DecodeLimits &limits = {});
 [[nodiscard]] Result<OrdersPage>
 decode_orders_response(std::string_view json, const DecodeLimits &limits = {});
+[[nodiscard]] Result<OrderRecord>
+decode_order_response(std::string_view json, const DecodeLimits &limits = {});
 [[nodiscard]] Result<ActivityPage>
 decode_activity_response(std::string_view json, const DecodeLimits &limits = {});
 

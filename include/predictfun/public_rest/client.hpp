@@ -48,6 +48,16 @@ struct TimeseriesQuery {
   std::optional<std::string> after;
 };
 
+struct MatchesQuery {
+  std::optional<std::size_t> first;
+  std::optional<std::string> after;
+  std::optional<std::string> category;
+  std::optional<MarketId> market_id;
+  std::optional<Uint256> min_value_usdt_wei;
+  std::optional<EvmAddress> signer_address;
+  std::optional<bool> is_signer_maker;
+};
+
 namespace protocol {
 
 [[nodiscard]] Result<std::string> markets_target(const MarketsQuery &query);
@@ -60,6 +70,7 @@ categories_target(const CategoriesQuery &query);
 timeseries_target(MarketId market_id, const TimeseriesQuery &query);
 [[nodiscard]] Result<std::string>
 latest_timeseries_target(MarketId market_id, std::string_view metric);
+[[nodiscard]] Result<std::string> matches_target(const MatchesQuery &query);
 
 } // namespace protocol
 
@@ -94,6 +105,8 @@ public:
   void async_get_latest_timeseries(MarketId market_id, std::string metric,
                                    net::RequestContext context,
                                    Handler<TimeseriesPoint> handler);
+  void async_get_matches(MatchesQuery query, net::RequestContext context,
+                         Handler<MatchesPage> handler);
 
 private:
   struct Impl;

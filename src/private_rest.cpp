@@ -27,6 +27,13 @@ bool safe_token(std::string_view value) {
          });
 }
 
+bool order_hash(std::string_view value) {
+  return value.size() == 66U && value.starts_with("0x") &&
+         std::ranges::all_of(value.substr(2U), [](unsigned char character) {
+           return std::isxdigit(character) != 0;
+         });
+}
+
 std::string percent_encode(std::string_view value) {
   constexpr char hex[] = "0123456789ABCDEF";
   std::string encoded;
@@ -117,6 +124,14 @@ Result<std::string> orders_target(const OrdersQuery &query) {
     add_query(target.value(), "status", *query.status);
   }
   return target.value();
+}
+
+Result<std::string> order_target(std::string_view hash) {
+  if (!order_hash(hash))
+    return Error{ErrorCode::invalid_argument,
+                 "order hash must be 0x followed by 64 hex characters",
+                 "hash"};
+  return "/v1/orders/" + std::string{hash};
 }
 
 Result<std::string> activity_target(const ActivityQuery &query) {
@@ -347,6 +362,18 @@ void PrivateRestClient::async_get_orders(OrdersQuery query,
               limits](Result<net::HttpResponse> raw) mutable {
                if (!raw) return handler(raw.error());
                handler(codec::decode_orders_response(raw.value().body, limits));
+             });
+}
+
+void PrivateRestClient::async_get_order(std::string hash,
+                                        net::RequestContext context,
+                                        Handler<OrderRecord> handler) {
+  const auto limits = impl_->options.decode_limits;
+  impl_->get("order", protocol::order_target(hash), std::move(context),
+             [handler = std::move(handler),
+              limits](Result<net::HttpResponse> raw) mutable {
+               if (!raw) return handler(raw.error());
+               handler(codec::decode_order_response(raw.value().body, limits));
              });
 }
 

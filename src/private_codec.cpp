@@ -89,6 +89,10 @@ struct WireOrdersResponse {
   std::optional<std::string> cursor;
   std::optional<std::vector<WireOrderRecord>> data;
 };
+struct WireOrderResponse {
+  std::optional<bool> success;
+  std::optional<WireOrderRecord> data;
+};
 
 struct WireFee {
   std::optional<glz::raw_json> amount;
@@ -286,6 +290,36 @@ Result<ContractOrder> contract_order(const WireContractOrder &wire,
                        *wire.signature};
 }
 
+Result<OrderRecord> order_record(const WireOrderRecord &item,
+                                 const std::string &prefix) {
+  if (!item.order) return missing(prefix + ".order");
+  if (!item.id) return missing(prefix + ".id");
+  if (!item.marketId) return missing(prefix + ".marketId");
+  if (!item.currency) return missing(prefix + ".currency");
+  if (!item.amount) return missing(prefix + ".amount");
+  if (!item.amountFilled) return missing(prefix + ".amountFilled");
+  if (!item.isNegRisk) return missing(prefix + ".isNegRisk");
+  if (!item.isYieldBearing) return missing(prefix + ".isYieldBearing");
+  if (!item.strategy) return missing(prefix + ".strategy");
+  if (!item.status) return missing(prefix + ".status");
+  if (!item.rewardEarningRate)
+    return missing(prefix + ".rewardEarningRate");
+  auto contract = contract_order(*item.order, prefix + ".order");
+  auto amount = exact(*item.amount, prefix + ".amount");
+  auto filled = exact(*item.amountFilled, prefix + ".amountFilled");
+  auto reward = exact(*item.rewardEarningRate,
+                      prefix + ".rewardEarningRate");
+  if (!contract) return contract.error();
+  if (!amount) return amount.error();
+  if (!filled) return filled.error();
+  if (!reward) return reward.error();
+  return OrderRecord{
+      std::move(contract.value()), *item.id, MarketId{*item.marketId},
+      *item.currency, std::move(amount.value()), std::move(filled.value()),
+      *item.isNegRisk, *item.isYieldBearing, strategy(*item.strategy),
+      status(*item.status), std::move(reward.value())};
+}
+
 } // namespace
 
 Result<Account> decode_account_response(std::string_view json,
@@ -378,34 +412,21 @@ Result<OrdersPage> decode_orders_response(std::string_view json,
   for (std::size_t index = 0; index < wire.value().data->size(); ++index) {
     const auto &item = (*wire.value().data)[index];
     const auto prefix = "data[" + std::to_string(index) + "]";
-    if (!item.order) return missing(prefix + ".order");
-    if (!item.id) return missing(prefix + ".id");
-    if (!item.marketId) return missing(prefix + ".marketId");
-    if (!item.currency) return missing(prefix + ".currency");
-    if (!item.amount) return missing(prefix + ".amount");
-    if (!item.amountFilled) return missing(prefix + ".amountFilled");
-    if (!item.isNegRisk) return missing(prefix + ".isNegRisk");
-    if (!item.isYieldBearing) return missing(prefix + ".isYieldBearing");
-    if (!item.strategy) return missing(prefix + ".strategy");
-    if (!item.status) return missing(prefix + ".status");
-    if (!item.rewardEarningRate)
-      return missing(prefix + ".rewardEarningRate");
-    auto contract = contract_order(*item.order, prefix + ".order");
-    auto amount = exact(*item.amount, prefix + ".amount");
-    auto filled = exact(*item.amountFilled, prefix + ".amountFilled");
-    auto reward = exact(*item.rewardEarningRate,
-                        prefix + ".rewardEarningRate");
-    if (!contract) return contract.error();
-    if (!amount) return amount.error();
-    if (!filled) return filled.error();
-    if (!reward) return reward.error();
-    page.orders.push_back(OrderRecord{
-        std::move(contract.value()), *item.id, MarketId{*item.marketId},
-        *item.currency, std::move(amount.value()), std::move(filled.value()),
-        *item.isNegRisk, *item.isYieldBearing, strategy(*item.strategy),
-        status(*item.status), std::move(reward.value())});
+    auto parsed = order_record(item, prefix);
+    if (!parsed) return parsed.error();
+    page.orders.push_back(std::move(parsed.value()));
   }
   return page;
+}
+
+Result<OrderRecord> decode_order_response(std::string_view json,
+                                          const DecodeLimits &limits) {
+  auto wire = parse_wire<WireOrderResponse>(json, limits);
+  if (!wire) return wire.error();
+  if (!wire.value().success || !*wire.value().success)
+    return invalid("Predict.fun returned an unsuccessful response", "success");
+  if (!wire.value().data) return missing("data");
+  return order_record(*wire.value().data, "data");
 }
 
 Result<ActivityPage> decode_activity_response(std::string_view json,

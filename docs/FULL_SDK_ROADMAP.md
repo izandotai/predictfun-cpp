@@ -59,17 +59,21 @@ byte-for-byte on BNB mainnet and testnet.
 Implemented with a separately linkable `predictfun::local_signer`; callers may
 instead supply an external signer. The SDK never discovers or loads keys.
 
-### P5: trading API and reconciliation
+### P5: trading API and reconciliation - implementation complete
 
 - Create limit/market orders; query one/all orders and matches.
 - Cancel selected hashes or remove eligible orders from the book.
-- Idempotency keys, client order correlation and bounded retry policy.
+- Deterministic order hashes as client correlation/idempotency keys; mutation
+  transport is single-attempt and never performs a blind retry.
 - Private-event state machine and REST reconciliation after disconnects.
 - Ambiguous-submit quarantine: never blindly resend an order whose outcome is
   unknown; look up by deterministic hash before deciding.
 
-Gate: testnet create/partial-fill/fill/cancel/reject/reconnect scenarios leave
-the local state identical to venue state.
+The deterministic implementation gate is complete: create/remove codecs,
+single-order lookup, match-event reads, private-event transitions, disconnect
+reconciliation and ambiguous-submit quarantine pass the Debug suite. The live
+testnet acceptance scenario remains part of the final release matrix because
+it requires an explicitly funded caller-owned account.
 
 ### P6: BNB-chain wallet operations
 
