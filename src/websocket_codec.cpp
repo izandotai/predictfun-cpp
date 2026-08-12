@@ -33,7 +33,7 @@ struct WireOrderbookVersion {
 
 struct WireTradingStatus {
   std::optional<std::string> kind;
-  std::optional<std::int64_t> tsMs;
+  std::optional<glz::raw_json> tsMs;
   std::optional<std::uint64_t> marketId;
   std::optional<std::string> tradingStatus;
 };
@@ -47,7 +47,7 @@ struct WireStatusOutcome {
 
 struct WireMarketStatus {
   std::optional<std::string> kind;
-  std::optional<std::int64_t> tsMs;
+  std::optional<glz::raw_json> tsMs;
   std::optional<std::uint64_t> marketId;
   std::optional<std::string> status;
   std::optional<std::vector<WireStatusOutcome>> marketOutcomes;
@@ -56,14 +56,14 @@ struct WireMarketStatus {
 struct WireMarketChanged {
   std::optional<std::string> kind;
   std::optional<std::string> patchKind;
-  std::optional<std::int64_t> tsMs;
+  std::optional<glz::raw_json> tsMs;
   std::optional<std::uint64_t> marketId;
 };
 
 struct WireCategoryChanged {
   std::optional<std::string> kind;
   std::optional<std::string> patchKind;
-  std::optional<std::int64_t> tsMs;
+  std::optional<glz::raw_json> tsMs;
   std::optional<std::uint64_t> categoryId;
   std::optional<std::string> slug;
 };
@@ -98,6 +98,29 @@ std::string_view decimal_lexeme(const glz::raw_json &raw) {
   std::string_view value = raw.str;
   if (value.size() >= 2U && value.front() == '"' && value.back() == '"')
     value = value.substr(1U, value.size() - 2U);
+  return value;
+}
+
+Result<std::int64_t> exact_int64(const glz::raw_json &raw,
+                                 std::string field) {
+  auto lexeme = decimal_lexeme(raw);
+  const auto decimal = lexeme.find('.');
+  if (decimal != std::string_view::npos) {
+    if (lexeme.find_first_of("eE", decimal + 1U) != std::string_view::npos)
+      return invalid("integer timestamp exponent is not supported", std::move(field));
+    const auto fraction = lexeme.substr(decimal + 1U);
+    if (fraction.empty() ||
+        fraction.find_first_not_of('0') != std::string_view::npos) {
+      return invalid("timestamp must be numerically integral", std::move(field));
+    }
+    lexeme = lexeme.substr(0U, decimal);
+  }
+  std::int64_t value = 0;
+  const auto [end, error] =
+      std::from_chars(lexeme.data(), lexeme.data() + lexeme.size(), value);
+  if (error != std::errc{} || end != lexeme.data() + lexeme.size())
+    return invalid("timestamp is outside the signed 64-bit integer range",
+                   std::move(field));
   return value;
 }
 
@@ -198,9 +221,12 @@ Result<TradingStatusMessage> decode_trading_status(const std::string &topic,
     return missing("data.marketId");
   if (!wire.value().tradingStatus)
     return missing("data.tradingStatus");
-  if (*wire.value().tsMs <= 0 || *wire.value().marketId != parameter.value())
+  auto timestamp = exact_int64(*wire.value().tsMs, "data.tsMs");
+  if (!timestamp)
+    return timestamp.error();
+  if (timestamp.value() <= 0 || *wire.value().marketId != parameter.value())
     return invalid("trading status identity or timestamp is invalid", "data");
-  return TradingStatusMessage{*wire.value().tsMs,
+  return TradingStatusMessage{timestamp.value(),
                               MarketId{*wire.value().marketId},
                               trading_status(*wire.value().tradingStatus)};
 }
@@ -225,11 +251,14 @@ decode_market_status(const std::string &topic, const glz::raw_json &raw,
     return missing("data.marketId");
   if (!wire.value().status)
     return missing("data.status");
-  if (*wire.value().tsMs <= 0 || *wire.value().marketId != parameter.value())
+  auto timestamp = exact_int64(*wire.value().tsMs, "data.tsMs");
+  if (!timestamp)
+    return timestamp.error();
+  if (timestamp.value() <= 0 || *wire.value().marketId != parameter.value())
     return invalid("market status identity or timestamp is invalid", "data");
 
   const MarketId market_id{*wire.value().marketId};
-  MarketStatusMessage message{*wire.value().tsMs, market_id,
+  MarketStatusMessage message{timestamp.value(), market_id,
                               market_status(*wire.value().status), {}};
   if (!wire.value().marketOutcomes)
     return message;
@@ -280,9 +309,12 @@ Result<MarketChangedMessage> decode_market_changed(const std::string &topic,
     return missing("data.tsMs");
   if (!wire.value().marketId)
     return missing("data.marketId");
-  if (*wire.value().tsMs <= 0 || *wire.value().marketId != parameter.value())
+  auto timestamp = exact_int64(*wire.value().tsMs, "data.tsMs");
+  if (!timestamp)
+    return timestamp.error();
+  if (timestamp.value() <= 0 || *wire.value().marketId != parameter.value())
     return invalid("market change identity or timestamp is invalid", "data");
-  return MarketChangedMessage{*wire.value().tsMs,
+  return MarketChangedMessage{timestamp.value(),
                               MarketId{*wire.value().marketId},
                               wire.value().patchKind};
 }
@@ -304,12 +336,15 @@ decode_category_changed(const std::string &topic, const glz::raw_json &raw,
     return missing("data.categoryId");
   if (!wire.value().slug)
     return missing("data.slug");
-  if (*wire.value().tsMs <= 0 ||
+  auto timestamp = exact_int64(*wire.value().tsMs, "data.tsMs");
+  if (!timestamp)
+    return timestamp.error();
+  if (timestamp.value() <= 0 ||
       *wire.value().categoryId != parameter.value())
     return invalid("category change identity or timestamp is invalid", "data");
   if (wire.value().slug->size() > limits.max_string_bytes)
     return invalid("category slug exceeds configured limit", "data.slug");
-  return CategoryChangedMessage{*wire.value().tsMs,
+  return CategoryChangedMessage{timestamp.value(),
                                 *wire.value().categoryId,
                                 *wire.value().slug,
                                 wire.value().patchKind};

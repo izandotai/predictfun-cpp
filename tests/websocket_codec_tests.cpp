@@ -82,6 +82,24 @@ void test_envelopes_and_orderbook() {
       precision());
   CHECK(unknown &&
         std::holds_alternative<UnknownPublicMessage>(unknown.value()));
+
+  auto exact_decimal_timestamp = codec::decode_public_ws_frame(
+      R"({"type":"M","topic":"predictCategoryChanged/9","data":{"kind":"categoryChanged","patchKind":"UPDATED","tsMs":1786529414095.0,"categoryId":9,"slug":"btc-updown-5m-1786529700"}})",
+      precision());
+  CHECK(exact_decimal_timestamp &&
+        std::holds_alternative<CategoryChangedMessage>(
+            exact_decimal_timestamp.value()));
+  if (exact_decimal_timestamp &&
+      std::holds_alternative<CategoryChangedMessage>(
+          exact_decimal_timestamp.value())) {
+    CHECK(std::get<CategoryChangedMessage>(exact_decimal_timestamp.value())
+              .timestamp_ms == 1786529414095LL);
+  }
+
+  auto fractional_timestamp = codec::decode_public_ws_frame(
+      R"({"type":"M","topic":"predictCategoryChanged/9","data":{"kind":"categoryChanged","tsMs":1786529414095.5,"categoryId":9,"slug":"btc-updown-5m-1786529700"}})",
+      precision());
+  CHECK(!fractional_timestamp);
 }
 
 void test_bounds() {
