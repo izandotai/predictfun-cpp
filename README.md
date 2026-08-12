@@ -31,10 +31,12 @@ The current SDK contains independently linkable authority layers:
   a complete authenticated REST snapshot;
 - deterministic YES-to-NO order-book derivation using integer ticks.
 
-P0 through P5 are implemented and pass the deterministic Debug test matrix.
-BNB-chain wallet operations and production hardening remain in progress. The
-optional mainnet API
-key is supplied by the caller and is emitted
+P0 through P6 are implemented and pass the deterministic Debug and Release
+test matrices. P7 production hardening is in progress; durable recovery,
+shared REST budgets, reconnect-storm protection, property/adversarial tests,
+fault injection, sanitizer CI and a codec fuzzer are present. Live testnet
+evidence, package-consumer verification and the final API audit remain. The
+optional mainnet API key is supplied by the caller and is emitted
 only as an `x-api-key` header; the SDK does not read environment files and
 rejects credentials in request targets.
 
@@ -50,6 +52,18 @@ is intentionally deferred until every SDK gate passes.
 cmake --preset dev
 cmake --build --preset dev
 ctest --preset dev
+```
+
+The normal SDK build never enables fuzzing. On a Clang/libFuzzer host, the
+bounded codec target can be built and run explicitly:
+
+```sh
+cmake -S . -B build/fuzz -G Ninja \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+  -DPREDICTFUN_BUILD_TESTS=ON -DPREDICTFUN_BUILD_TOOLS=OFF \
+  -DPREDICTFUN_BUILD_FUZZERS=ON
+cmake --build build/fuzz --target predictfun_codec_fuzz
+./build/fuzz/predictfun_codec_fuzz -runs=2000 -max_len=4096
 ```
 
 If an environment cannot validate GitHub TLS because its CMake installation

@@ -13,7 +13,7 @@ Updated: 2026-08-12
 | P4 deterministic order builder | complete | official SDK/ethers golden vectors and local signer tests |
 | P5 trading/reconciliation | implementation complete | `trading`, `lifecycle`, match/order REST and `p5_boundary` tests |
 | P6 BNB wallet operations | implementation complete | deterministic transaction/approval gate complete; live testnet evidence pending |
-| P7 hardening/release | in progress | durable recovery, shared rate budgets and reconnect-storm protection implemented |
+| P7 hardening/release | in progress | durable recovery, shared rate budgets, reconnect-storm protection and hostile-input testing implemented |
 
 ## Completed P3 checklist
 
@@ -107,8 +107,18 @@ P7 durable recovery is implemented without integrating PMT:
   propagation across REST/auth/trading clients.
 - [x] Public/private WebSocket exponential backoff, jitter, stable-session
   reset semantics and reconnect-storm circuit breaker.
-- [ ] Fuzz/property tests and sanitizer jobs.
+- [x] Deterministic property tests for exact amount math, prices and lifecycle
+  safety invariants.
+- [x] Hostile/mutated codec corpus plus a Clang/libFuzzer target covering all
+  public, private, wallet, trading and authentication decoders.
+- [x] Async fault injection proving duplicate transport completions and late
+  post-cancellation responses cannot complete a public REST operation twice.
+- [x] Manually triggered CI job configured to run the full matrix under
+  ASan/UBSan and a deterministic libFuzzer smoke run.
 - [ ] Installed-package consumer matrix.
 - [ ] Explicitly gated testnet operation harness.
 
-Next: complete property/fuzz tests and sanitizer/fault-injection jobs.
+Current deterministic matrix: 27 Debug/Release tests.
+
+Next: add an explicitly gated BNB testnet operation harness and evidence
+format, without embedding credentials or silently performing a mutation.

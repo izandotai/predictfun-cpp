@@ -10,6 +10,8 @@ option(PREDICTFUN_BUILD_TESTS "Build predictfun-cpp tests" ON)
 option(PREDICTFUN_BUILD_TOOLS "Build predictfun-cpp read-only tools" ON)
 option(PREDICTFUN_BUILD_LOCAL_SIGNER
        "Build the separately linkable in-memory secp256k1 signer" ON)
+option(PREDICTFUN_BUILD_FUZZERS
+       "Build Clang/libFuzzer codec targets (off in normal SDK builds)" OFF)
 option(PREDICTFUN_WARNINGS_AS_ERRORS "Treat warnings in predictfun-cpp as errors" ON)
 set(PREDICTFUN_GLAZE_SOURCE_DIR "" CACHE PATH "Optional pre-verified local Glaze v7.8.4 source")
 set(PREDICTFUN_BOOST_SOURCE_DIR "" CACHE PATH "Optional pre-verified local Boost 1.87.0 source")
@@ -600,6 +602,29 @@ if(PREDICTFUN_BUILD_TESTS)
     endif()
     add_test(NAME websocket_transport COMMAND predictfun_websocket_transport_tests)
 
+    add_executable(predictfun_property_tests tests/property_tests.cpp)
+    target_compile_features(predictfun_property_tests PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_property_tests
+        PRIVATE predictfun::types predictfun::order predictfun::lifecycle)
+    predictfun_enable_warnings(predictfun_property_tests)
+    add_test(NAME property COMMAND predictfun_property_tests)
+
+    add_executable(predictfun_codec_adversarial_tests
+        tests/codec_adversarial_tests.cpp)
+    target_compile_features(predictfun_codec_adversarial_tests PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_codec_adversarial_tests
+        PRIVATE predictfun::codec)
+    predictfun_enable_warnings(predictfun_codec_adversarial_tests)
+    add_test(NAME codec_adversarial COMMAND predictfun_codec_adversarial_tests)
+
+    add_executable(predictfun_fault_injection_tests
+        tests/fault_injection_tests.cpp)
+    target_compile_features(predictfun_fault_injection_tests PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_fault_injection_tests
+        PRIVATE predictfun::public_rest)
+    predictfun_enable_warnings(predictfun_fault_injection_tests)
+    add_test(NAME fault_injection COMMAND predictfun_fault_injection_tests)
+
     add_test(
         NAME p0_boundary
         COMMAND ${CMAKE_COMMAND}
@@ -642,4 +667,17 @@ if(PREDICTFUN_BUILD_TESTS)
             -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_p6_boundary.cmake
     )
+endif()
+
+if(PREDICTFUN_BUILD_FUZZERS)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "PREDICTFUN_BUILD_FUZZERS requires Clang/libFuzzer")
+    endif()
+    add_executable(predictfun_codec_fuzz fuzz/codec_fuzz.cpp)
+    target_compile_features(predictfun_codec_fuzz PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_codec_fuzz PRIVATE predictfun::codec)
+    target_compile_options(predictfun_codec_fuzz PRIVATE
+        -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
+    target_link_options(predictfun_codec_fuzz PRIVATE
+        -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
 endif()
