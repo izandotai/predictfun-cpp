@@ -2,7 +2,7 @@
 
 An independently layered C++20 client library for Predict.fun.
 
-The current P2 milestone contains five independently linkable layers:
+The current foundation contains six independently linkable layers:
 
 - `predictfun::types`: strong market, decimal, price, and order-book types;
 - `predictfun::codec`: bounded, strict JSON decoding for public market and
@@ -16,12 +16,21 @@ The current P2 milestone contains five independently linkable layers:
 - `predictfun::public_wss`: typed, read-only public WebSocket subscriptions
   with exact heartbeat echoes, bounded frames and event queues, freshness
   tracking, reconnect/resubscribe, and explicit resynchronization states;
+- `predictfun::auth`: bounded challenge/proof authentication with a
+  caller-supplied asynchronous signer and move-only JWT ownership;
 - deterministic YES-to-NO order-book derivation using integer ticks.
 
-P2 has no private account feed, wallet, signer, RPC, JWT, or order submission
-code. The optional mainnet API key is supplied by the caller and is emitted
+P3 authentication/private-read work is now in progress. The repository still
+has no order submission or BNB-chain mutation path. The optional mainnet API
+key is supplied by the caller and is emitted
 only as an `x-api-key` header; the SDK does not read environment files and
 rejects credentials in request targets.
+
+The complete SDK definition, module order and acceptance gates are tracked in
+[`docs/FULL_SDK_ROADMAP.md`](docs/FULL_SDK_ROADMAP.md); current implementation
+state is tracked in
+[`docs/DEVELOPMENT_PROGRESS.md`](docs/DEVELOPMENT_PROGRESS.md). PMT integration
+is intentionally deferred until every SDK gate passes.
 
 ## Build and test
 

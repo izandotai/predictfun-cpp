@@ -80,6 +80,10 @@ endfunction()
 
 add_library(predictfun_types STATIC
     src/decimal.cpp
+    src/exact_number.cpp
+    src/evm.cpp
+    src/secret.cpp
+    src/auth_types.cpp
     src/orderbook.cpp
 )
 add_library(predictfun::types ALIAS predictfun_types)
@@ -93,6 +97,9 @@ predictfun_enable_warnings(predictfun_types)
 
 add_library(predictfun_codec STATIC
     src/codec.cpp
+    src/auth_codec.cpp
+    src/private_codec.cpp
+    src/private_websocket_codec.cpp
     src/websocket_codec.cpp
 )
 add_library(predictfun::codec ALIAS predictfun_codec)
@@ -169,13 +176,61 @@ target_link_libraries(predictfun_public_wss
 )
 predictfun_enable_warnings(predictfun_public_wss)
 
+add_library(predictfun_auth STATIC
+    src/auth.cpp
+)
+add_library(predictfun::auth ALIAS predictfun_auth)
+target_compile_features(predictfun_auth PUBLIC cxx_std_20)
+target_include_directories(predictfun_auth
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+target_link_libraries(predictfun_auth
+    PUBLIC predictfun::codec predictfun::net
+)
+predictfun_enable_warnings(predictfun_auth)
+
+add_library(predictfun_private_rest STATIC
+    src/private_rest.cpp
+)
+add_library(predictfun::private_rest ALIAS predictfun_private_rest)
+target_compile_features(predictfun_private_rest PUBLIC cxx_std_20)
+target_include_directories(predictfun_private_rest
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+target_link_libraries(predictfun_private_rest
+    PUBLIC predictfun::codec predictfun::net
+)
+predictfun_enable_warnings(predictfun_private_rest)
+
+add_library(predictfun_private_wss STATIC
+    src/private_wss.cpp
+)
+add_library(predictfun::private_wss ALIAS predictfun_private_wss)
+target_compile_features(predictfun_private_wss PUBLIC cxx_std_20)
+target_include_directories(predictfun_private_wss
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+target_link_libraries(predictfun_private_wss
+    PUBLIC predictfun::codec predictfun::net
+)
+predictfun_enable_warnings(predictfun_private_wss)
+
 set_target_properties(predictfun_types PROPERTIES EXPORT_NAME types)
 set_target_properties(predictfun_codec PROPERTIES EXPORT_NAME codec)
 set_target_properties(predictfun_net PROPERTIES EXPORT_NAME net)
 set_target_properties(predictfun_public_rest PROPERTIES EXPORT_NAME public_rest)
 set_target_properties(predictfun_public_wss PROPERTIES EXPORT_NAME public_wss)
+set_target_properties(predictfun_auth PROPERTIES EXPORT_NAME auth)
+set_target_properties(predictfun_private_rest PROPERTIES EXPORT_NAME private_rest)
+set_target_properties(predictfun_private_wss PROPERTIES EXPORT_NAME private_wss)
 
-install(TARGETS predictfun_types predictfun_codec predictfun_net predictfun_public_rest predictfun_public_wss
+install(TARGETS predictfun_types predictfun_codec predictfun_net predictfun_public_rest predictfun_public_wss predictfun_auth predictfun_private_rest predictfun_private_wss
     EXPORT predictfunTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -241,6 +296,38 @@ if(PREDICTFUN_BUILD_TESTS)
     predictfun_enable_warnings(predictfun_public_rest_tests)
     add_test(NAME public_rest COMMAND predictfun_public_rest_tests)
 
+    add_executable(predictfun_auth_tests tests/auth_tests.cpp)
+    target_compile_features(predictfun_auth_tests PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_auth_tests PRIVATE predictfun::auth)
+    predictfun_enable_warnings(predictfun_auth_tests)
+    add_test(NAME auth COMMAND predictfun_auth_tests)
+
+    add_executable(predictfun_private_rest_tests tests/private_rest_tests.cpp)
+    target_compile_features(predictfun_private_rest_tests PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_private_rest_tests
+        PRIVATE predictfun::private_rest
+    )
+    predictfun_enable_warnings(predictfun_private_rest_tests)
+    add_test(NAME private_rest COMMAND predictfun_private_rest_tests)
+
+    add_executable(predictfun_private_websocket_codec_tests
+        tests/private_websocket_codec_tests.cpp
+    )
+    target_compile_features(predictfun_private_websocket_codec_tests PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_private_websocket_codec_tests
+        PRIVATE predictfun::codec
+    )
+    predictfun_enable_warnings(predictfun_private_websocket_codec_tests)
+    add_test(NAME private_websocket_codec COMMAND predictfun_private_websocket_codec_tests)
+
+    add_executable(predictfun_private_wss_tests tests/private_wss_tests.cpp)
+    target_compile_features(predictfun_private_wss_tests PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_private_wss_tests
+        PRIVATE predictfun::private_wss
+    )
+    predictfun_enable_warnings(predictfun_private_wss_tests)
+    add_test(NAME private_wss COMMAND predictfun_private_wss_tests)
+
     add_executable(predictfun_http_transport_tests
         tests/http_transport_tests.cpp
     )
@@ -300,5 +387,11 @@ if(PREDICTFUN_BUILD_TESTS)
         COMMAND ${CMAKE_COMMAND}
             -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_p2_boundary.cmake
+    )
+    add_test(
+        NAME p3_boundary
+        COMMAND ${CMAKE_COMMAND}
+            -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_p3_boundary.cmake
     )
 endif()

@@ -46,8 +46,8 @@ public:
   }
   void push(Error error) { responses_.emplace_back(std::move(error)); }
 
-  void async_get(HttpRequest request, RequestContext,
-                 predictfun::net::ResponseHandler handler) override {
+  void async_request(HttpRequest request, RequestContext,
+                     predictfun::net::ResponseHandler handler) override {
     requests.push_back(std::move(request));
     if (responses_.empty()) {
       boost::asio::dispatch(

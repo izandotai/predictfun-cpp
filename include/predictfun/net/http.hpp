@@ -15,17 +15,22 @@
 
 namespace predictfun::net {
 
+enum class HttpMethod { get, post };
+
 struct Header {
   std::string name;
   std::string value;
 };
 
 struct HttpRequest {
+  HttpMethod method{HttpMethod::get};
   std::string host;
   std::string port{"443"};
   std::string target{"/"};
   bool use_tls{true};
   std::vector<Header> headers;
+  std::string body;
+  std::string content_type{"application/json"};
 };
 
 struct HttpResponse {
@@ -38,6 +43,7 @@ struct HttpResponse {
 
 struct TransportLimits {
   std::size_t max_body_bytes{2U * 1024U * 1024U};
+  std::size_t max_request_body_bytes{256U * 1024U};
   std::chrono::milliseconds default_timeout{15'000};
 };
 
@@ -55,8 +61,13 @@ using ResponseHandler = std::function<void(Result<HttpResponse>)>;
 class HttpTransport {
 public:
   virtual ~HttpTransport() = default;
-  virtual void async_get(HttpRequest request, RequestContext context,
-                         ResponseHandler handler) = 0;
+  virtual void async_request(HttpRequest request, RequestContext context,
+                             ResponseHandler handler) = 0;
+
+  void async_get(HttpRequest request, RequestContext context,
+                 ResponseHandler handler);
+  void async_post(HttpRequest request, RequestContext context,
+                  ResponseHandler handler);
 };
 
 class BeastHttpTransport final : public HttpTransport {
@@ -68,8 +79,8 @@ public:
   BeastHttpTransport(const BeastHttpTransport &) = delete;
   BeastHttpTransport &operator=(const BeastHttpTransport &) = delete;
 
-  void async_get(HttpRequest request, RequestContext context,
-                 ResponseHandler handler) override;
+  void async_request(HttpRequest request, RequestContext context,
+                     ResponseHandler handler) override;
 
 private:
   struct Impl;

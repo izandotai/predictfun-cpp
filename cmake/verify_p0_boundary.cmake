@@ -1,11 +1,20 @@
-file(GLOB_RECURSE P0_FILES
-    "${ROOT}/include/predictfun/types/*.hpp"
-    "${ROOT}/include/predictfun/codec/*.hpp"
-)
-list(APPEND P0_FILES
+# P0 is the original public-data model/codec boundary.  Later milestones add
+# separate auth/order types beneath the same include roots, so enumerate the
+# P0 surface instead of accidentally treating every future SDK file as P0.
+set(P0_FILES
+    "${ROOT}/include/predictfun/types/error.hpp"
+    "${ROOT}/include/predictfun/types/decimal.hpp"
+    "${ROOT}/include/predictfun/types/market.hpp"
+    "${ROOT}/include/predictfun/types/category.hpp"
+    "${ROOT}/include/predictfun/types/orderbook.hpp"
+    "${ROOT}/include/predictfun/types/timeseries.hpp"
+    "${ROOT}/include/predictfun/types/websocket.hpp"
+    "${ROOT}/include/predictfun/codec/public_rest.hpp"
+    "${ROOT}/include/predictfun/codec/public_websocket.hpp"
     "${ROOT}/src/decimal.cpp"
     "${ROOT}/src/orderbook.cpp"
     "${ROOT}/src/codec.cpp"
+    "${ROOT}/src/websocket_codec.cpp"
 )
 
 set(FORBIDDEN_PATTERNS

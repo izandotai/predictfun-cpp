@@ -107,6 +107,24 @@ public:
                           "HTTP host, port and absolute target are required",
                           "request"});
     }
+    if (request_.body.size() > limits_.max_request_body_bytes) {
+      return finish(Error{ErrorCode::body_too_large,
+                          "HTTP request body exceeds configured limit",
+                          "request.body"});
+    }
+    if (request_.method == HttpMethod::get && !request_.body.empty()) {
+      return finish(Error{ErrorCode::invalid_argument,
+                          "GET requests cannot contain a body",
+                          "request.body"});
+    }
+    for (const auto &header : request_.headers) {
+      if (header.name.empty() || header.name.find_first_of("\r\n") !=
+                                     std::string::npos ||
+          header.value.find_first_of("\r\n") != std::string::npos) {
+        return finish(Error{ErrorCode::invalid_argument,
+                            "invalid HTTP header", "request.headers"});
+      }
+    }
     std::string lowered_target = request_.target;
     std::ranges::transform(lowered_target, lowered_target.begin(),
                            [](unsigned char value) {
@@ -207,14 +225,21 @@ private:
   }
 
   void write() {
+    const auto method = request_.method == HttpMethod::get ? http::verb::get
+                                                           : http::verb::post;
     wire_request_ =
-        http::request<http::empty_body>{http::verb::get, request_.target, 11};
+        http::request<http::string_body>{method, request_.target, 11};
     wire_request_.set(http::field::host, request_.host);
     wire_request_.set(http::field::user_agent, "predictfun-cpp/0.1");
     wire_request_.set(http::field::accept, "application/json");
     wire_request_.keep_alive(false);
     for (const auto &header : request_.headers)
       wire_request_.set(header.name, header.value);
+    if (request_.method == HttpMethod::post) {
+      wire_request_.set(http::field::content_type, request_.content_type);
+      wire_request_.body() = std::move(request_.body);
+      wire_request_.prepare_payload();
+    }
 
     auto callback = [self = shared_from_this()](const beast::error_code &ec,
                                                 std::size_t) {
@@ -304,7 +329,7 @@ private:
   asio::steady_timer deadline_timer_;
   std::unique_ptr<TlsStream> tls_stream_;
   std::unique_ptr<beast::tcp_stream> plain_stream_;
-  http::request<http::empty_body> wire_request_;
+  http::request<http::string_body> wire_request_;
   beast::flat_buffer buffer_;
   http::response_parser<http::string_body> parser_;
   std::optional<std::stop_callback<std::function<void()>>> stop_callback_;
@@ -348,8 +373,21 @@ BeastHttpTransport::BeastHttpTransport(asio::any_io_executor executor,
 
 BeastHttpTransport::~BeastHttpTransport() = default;
 
-void BeastHttpTransport::async_get(HttpRequest request, RequestContext context,
-                                   ResponseHandler handler) {
+void HttpTransport::async_get(HttpRequest request, RequestContext context,
+                              ResponseHandler handler) {
+  request.method = HttpMethod::get;
+  async_request(std::move(request), std::move(context), std::move(handler));
+}
+
+void HttpTransport::async_post(HttpRequest request, RequestContext context,
+                               ResponseHandler handler) {
+  request.method = HttpMethod::post;
+  async_request(std::move(request), std::move(context), std::move(handler));
+}
+
+void BeastHttpTransport::async_request(HttpRequest request,
+                                       RequestContext context,
+                                       ResponseHandler handler) {
   if (!handler)
     return;
   auto session = std::make_shared<HttpSession>(
@@ -366,7 +404,8 @@ bool is_secret_header(std::string_view name) noexcept {
 std::string sanitized_request_summary(const HttpRequest &request) {
   const auto query = request.target.find('?');
   const auto path = request.target.substr(0, query);
-  return std::format("GET {}:{}{}", request.host, request.port, path);
+  const auto method = request.method == HttpMethod::get ? "GET" : "POST";
+  return std::format("{} {}:{}{}", method, request.host, request.port, path);
 }
 
 } // namespace predictfun::net
