@@ -32,9 +32,12 @@ bool safe_id(std::string_view value) {
          });
 }
 
-Error http_error(ErrorCode code, int status, std::string message) {
+Error http_error(ErrorCode code, int status, std::string message,
+                 std::chrono::milliseconds retry = {}) {
   Error error{code, std::move(message), {}};
   error.http_status = status;
+  error.retry_after_ms =
+      static_cast<std::uint64_t>(std::max<std::int64_t>(0, retry.count()));
   return error;
 }
 
@@ -119,7 +122,9 @@ struct TradingClient::Impl : public std::enable_shared_from_this<Impl> {
        ClientOptions options_value)
       : executor(std::move(executor_value)),
         transport(std::move(transport_value)), options(std::move(options_value)),
-        limiter(options.rate_limits) {
+        limiter(options.rate_limiter
+                    ? options.rate_limiter
+                    : std::make_shared<net::RateLimiter>(options.rate_limits)) {
     if (!transport)
       throw std::invalid_argument("Predict.fun trading transport is required");
     if (!options.jwt)
@@ -149,7 +154,7 @@ struct TradingClient::Impl : public std::enable_shared_from_this<Impl> {
           context.deadline <= now)
         return finish(Error{ErrorCode::deadline_exceeded,
                             "request deadline exceeded", {}});
-      const auto wait = owner->limiter.reserve(endpoint, now);
+      const auto wait = owner->limiter->reserve(endpoint, now);
       if (wait.count() == 0) return send();
       if (context.deadline != std::chrono::steady_clock::time_point{} &&
           now + wait >= context.deadline)
@@ -230,10 +235,20 @@ struct TradingClient::Impl : public std::enable_shared_from_this<Impl> {
       if (response.status == 429 || response.status >= 500) {
         const auto code = response.status == 429 ? ErrorCode::rate_limited
                                                  : ErrorCode::http_server_error;
+        const auto retry = response.status == 429
+                               ? net::parse_retry_after(
+                                     response.header("Retry-After"),
+                                     std::chrono::system_clock::now(),
+                                     std::chrono::milliseconds{500})
+                               : std::chrono::milliseconds::zero();
+        if (response.status == 429)
+          owner->limiter->penalize(endpoint, std::chrono::steady_clock::now(),
+                                   retry);
         return finish(ambiguous<Receipt>(
             http_error(code, response.status,
                        response.status == 429 ? "Predict.fun rate limit exceeded"
-                                              : "Predict.fun server error"),
+                                              : "Predict.fun server error",
+                       retry),
             reconciliation_key));
       }
       return finish(http_error(response.status == 410
@@ -302,7 +317,7 @@ struct TradingClient::Impl : public std::enable_shared_from_this<Impl> {
   asio::any_io_executor executor;
   std::shared_ptr<net::HttpTransport> transport;
   ClientOptions options;
-  net::RateLimiter limiter;
+  std::shared_ptr<net::RateLimiter> limiter;
 };
 
 TradingClient::TradingClient(asio::any_io_executor executor,

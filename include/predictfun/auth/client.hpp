@@ -2,6 +2,7 @@
 
 #include "predictfun/codec/auth.hpp"
 #include "predictfun/net/http.hpp"
+#include "predictfun/net/rate_limiter.hpp"
 #include "predictfun/types/market.hpp"
 
 #include <boost/asio/any_io_executor.hpp>
@@ -20,6 +21,8 @@ struct ClientOptions {
   Environment environment{Environment::bnb_testnet};
   ApiKeyProvider api_key;
   codec::AuthCodecLimits codec_limits;
+  net::RateLimitPolicy rate_limits;
+  std::shared_ptr<net::RateLimiter> rate_limiter;
 };
 
 class MessageSigner {

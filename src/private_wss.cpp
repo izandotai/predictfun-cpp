@@ -1,5 +1,6 @@
 #include "predictfun/private_wss/client.hpp"
 #include "predictfun/codec/public_websocket.hpp"
+#include "predictfun/net/reconnect.hpp"
 
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/steady_timer.hpp>
@@ -15,6 +16,17 @@
 namespace predictfun::private_wss {
 namespace {
 namespace asio = boost::asio;
+
+net::ReconnectPolicy reconnect_policy(const ClientOptions &options) {
+  net::ReconnectPolicy policy;
+  policy.initial = options.reconnect_initial;
+  policy.maximum = options.reconnect_max;
+  policy.jitter_percent = options.reconnect_jitter_percent;
+  policy.storm_attempts = options.reconnect_storm_attempts;
+  policy.storm_window = options.reconnect_storm_window;
+  policy.storm_cooldown = options.reconnect_storm_cooldown;
+  return policy;
+}
 }
 
 struct PrivateWsClient::Impl
@@ -22,7 +34,9 @@ struct PrivateWsClient::Impl
   Impl(asio::any_io_executor executor_value, ClientOptions options_value,
        net::WebSocketChannelFactory factory_value)
       : executor(std::move(executor_value)), strand(asio::make_strand(executor)),
-        options(std::move(options_value)), factory(std::move(factory_value)),
+        options(std::move(options_value)),
+        reconnect_backoff(reconnect_policy(options)),
+        factory(std::move(factory_value)),
         reconnect_timer(strand), heartbeat_timer(strand), ack_timer(strand) {
     if (!factory) {
       const auto channel_executor = executor;
@@ -46,7 +60,7 @@ struct PrivateWsClient::Impl
     if (!options.api_key || !options.jwt)
       return hard_stop("private WebSocket API key and JWT providers are required");
     started = true;
-    reconnect_delay = options.reconnect_initial;
+    reconnect_backoff.mark_stable();
     connect();
   }
 
@@ -55,6 +69,7 @@ struct PrivateWsClient::Impl
     session_open = false;
     awaiting_ack = false;
     reconciled = false;
+    reconnect_pending = false;
     reconnect_timer.cancel();
     heartbeat_timer.cancel();
     ack_timer.cancel();
@@ -69,6 +84,7 @@ struct PrivateWsClient::Impl
   void connect() {
     if (!started)
       return;
+    reconnect_pending = false;
     {
       std::scoped_lock lock(stats_mutex);
       ++stats_value.generation;
@@ -117,7 +133,6 @@ struct PrivateWsClient::Impl
     if (!result)
       return schedule_reconnect(result.error().message);
     session_open = true;
-    reconnect_delay = options.reconnect_initial;
     set_state(PrivateWsState::subscribing, "connected; subscribing", true);
     arm_heartbeat();
     read_next(generation);
@@ -249,9 +264,12 @@ struct PrivateWsClient::Impl
   }
 
   void reconcile(std::uint64_t generation) {
-    if (!started || generation != state_generation || awaiting_ack)
+    if (!started || generation != state_generation || awaiting_ack ||
+        !session_open ||
+        state_value.load() != PrivateWsState::reconciliation_required)
       return;
     reconciled = true;
+    reconnect_backoff.mark_stable();
     set_state(PrivateWsState::live,
               "wallet events live; REST reconciliation complete", true);
   }
@@ -287,8 +305,9 @@ struct PrivateWsClient::Impl
   }
 
   void schedule_reconnect(std::string reason) {
-    if (!started)
+    if (!started || reconnect_pending)
       return;
+    reconnect_pending = true;
     heartbeat_timer.cancel();
     ack_timer.cancel();
     if (channel)
@@ -298,16 +317,23 @@ struct PrivateWsClient::Impl
     awaiting_ack = false;
     reconciled = false;
     increment_stat(&ClientStats::reconnects);
+    const auto decision =
+        reconnect_backoff.next(std::chrono::steady_clock::now());
+    if (decision.storm_cooldown) {
+      increment_stat(&ClientStats::reconnect_storm_cooldowns);
+      reason += "; reconnect storm cooldown " +
+                std::to_string(decision.delay.count()) + " ms";
+    }
     set_state(PrivateWsState::reconnect_wait, std::move(reason), true);
-    const auto delay = reconnect_delay;
-    reconnect_delay = std::min(reconnect_delay * 2, options.reconnect_max);
-    reconnect_timer.expires_after(delay);
+    reconnect_timer.expires_after(decision.delay);
     reconnect_timer.async_wait(
         [weak = weak_from_this()](const boost::system::error_code &error) {
           if (error)
             return;
-          if (auto self = weak.lock())
+          if (auto self = weak.lock()) {
+            self->reconnect_pending = false;
             self->connect();
+          }
         });
   }
 
@@ -360,6 +386,7 @@ struct PrivateWsClient::Impl
   asio::any_io_executor executor;
   asio::strand<asio::any_io_executor> strand;
   ClientOptions options;
+  net::ReconnectBackoff reconnect_backoff;
   net::WebSocketChannelFactory factory;
   std::shared_ptr<net::WebSocketChannel> channel;
   asio::steady_timer reconnect_timer;
@@ -368,7 +395,6 @@ struct PrivateWsClient::Impl
   std::uint64_t next_request_id{1};
   std::int64_t pending_request_id{0};
   std::uint64_t state_generation{0};
-  std::chrono::milliseconds reconnect_delay{250};
   std::atomic<PrivateWsState> state_value{PrivateWsState::stopped};
   mutable std::mutex queue_mutex;
   mutable std::mutex stats_mutex;
@@ -379,6 +405,7 @@ struct PrivateWsClient::Impl
   bool session_open{false};
   bool awaiting_ack{false};
   bool reconciled{false};
+  bool reconnect_pending{false};
 };
 
 PrivateWsClient::PrivateWsClient(

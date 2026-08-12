@@ -24,6 +24,7 @@ struct ClientOptions {
   JwtProvider jwt;
   codec::DecodeLimits decode_limits;
   net::RateLimitPolicy rate_limits;
+  std::shared_ptr<net::RateLimiter> rate_limiter;
 };
 
 namespace protocol {

@@ -97,7 +97,9 @@ caller-authorized final release matrix.
 ### P7: production hardening and release
 
 - Persistent reconciliation journal and restart recovery example.
-- Rate-limit budgets per endpoint and reconnect-storm protection.
+- Shared global/endpoint rate-limit budgets with server-directed cooldowns.
+- WebSocket exponential backoff, jitter and reconnect-storm protection that
+  resets only after a fully live/reconciled session.
 - Fuzz/property tests for codecs, amount math and state machines.
 - ASan/UBSan/TSan where supported; Windows static-PE verification.
 - API reference, cookbooks and semver/package installation test.

@@ -35,6 +35,10 @@ struct ClientOptions {
   std::chrono::milliseconds heartbeat_timeout{35'000};
   std::chrono::milliseconds reconnect_initial{250};
   std::chrono::milliseconds reconnect_max{10'000};
+  std::uint32_t reconnect_jitter_percent{20U};
+  std::size_t reconnect_storm_attempts{8U};
+  std::chrono::milliseconds reconnect_storm_window{30'000};
+  std::chrono::milliseconds reconnect_storm_cooldown{60'000};
 };
 
 struct ClientStats {
@@ -44,6 +48,7 @@ struct ClientStats {
   std::uint64_t malformed_frames{0};
   std::uint64_t queue_overflows{0};
   std::uint64_t reconciliation_requests{0};
+  std::uint64_t reconnect_storm_cooldowns{0};
 };
 
 class PrivateWsClient {

@@ -1,10 +1,14 @@
 #include "predictfun/auth/client.hpp"
 
 #include <boost/asio/dispatch.hpp>
+#include <boost/asio/steady_timer.hpp>
 
+#include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <stdexcept>
+#include <stop_token>
 #include <utility>
 
 namespace predictfun::auth {
@@ -12,9 +16,12 @@ namespace {
 
 namespace asio = boost::asio;
 
-Error http_error(ErrorCode code, int status, std::string message) {
+Error http_error(ErrorCode code, int status, std::string message,
+                 std::chrono::milliseconds retry = {}) {
   Error error{code, std::move(message), {}};
   error.http_status = status;
+  error.retry_after_ms = static_cast<std::uint64_t>(
+      std::max<std::int64_t>(0, retry.count()));
   return error;
 }
 
@@ -27,7 +34,10 @@ struct AuthClient::Impl : public std::enable_shared_from_this<Impl> {
        std::shared_ptr<net::HttpTransport> transport_value,
        ClientOptions options_value)
       : executor(std::move(executor_value)),
-        transport(std::move(transport_value)), options(std::move(options_value)) {
+        transport(std::move(transport_value)), options(std::move(options_value)),
+        limiter(options.rate_limiter
+                    ? options.rate_limiter
+                    : std::make_shared<net::RateLimiter>(options.rate_limits)) {
     if (!transport)
       throw std::invalid_argument("Predict.fun auth transport is required");
   }
@@ -38,9 +48,52 @@ struct AuthClient::Impl : public std::enable_shared_from_this<Impl> {
                    [self = shared_from_this(), method, target = std::move(target),
                     body = std::move(body), context = std::move(context),
                     handler = std::move(handler)]() mutable {
-                     self->send(method, std::move(target), std::move(body),
-                                std::move(context), std::move(handler));
+                     self->reserve_and_send(
+                         method, std::move(target), std::move(body),
+                         std::move(context), std::move(handler));
                    });
+  }
+
+  void reserve_and_send(net::HttpMethod method, std::string target,
+                        std::string body, net::RequestContext context,
+                        RawHandler handler) {
+    if (context.cancel.stop_requested())
+      return handler(Error{ErrorCode::cancelled, "request cancelled", {}});
+    const auto now = std::chrono::steady_clock::now();
+    if (context.deadline != std::chrono::steady_clock::time_point{} &&
+        context.deadline <= now)
+      return handler(Error{ErrorCode::deadline_exceeded,
+                           "request deadline exceeded", {}});
+    const auto wait = limiter->reserve(target, now);
+    if (wait == std::chrono::milliseconds::zero())
+      return send(method, std::move(target), std::move(body),
+                  std::move(context), std::move(handler));
+    if (context.deadline != std::chrono::steady_clock::time_point{} &&
+        now + wait >= context.deadline)
+      return handler(Error{ErrorCode::deadline_exceeded,
+                           "rate limit wait exceeds request deadline", {}});
+    auto timer = std::make_shared<asio::steady_timer>(executor);
+    timer->expires_after(wait);
+    auto cancellation = std::make_shared<
+        std::optional<std::stop_callback<std::function<void()>>>>();
+    cancellation->emplace(
+        context.cancel,
+        std::function<void()>{[executor = executor, timer] {
+          asio::dispatch(executor, [timer] { timer->cancel(); });
+        }});
+    timer->async_wait(
+        [self = shared_from_this(), timer, cancellation, method,
+         target = std::move(target), body = std::move(body),
+         context = std::move(context),
+         handler = std::move(handler)](
+            const boost::system::error_code &error) mutable {
+          cancellation->reset();
+          if (error)
+            return handler(
+                Error{ErrorCode::cancelled, "request wait cancelled", {}});
+          self->send(method, std::move(target), std::move(body),
+                     std::move(context), std::move(handler));
+        });
   }
 
   void send(net::HttpMethod method, std::string target, std::string body,
@@ -78,9 +131,11 @@ struct AuthClient::Impl : public std::enable_shared_from_this<Impl> {
     if (!key.empty())
       request.headers.push_back(net::Header{"x-api-key", std::move(key)});
 
+    const auto endpoint = request.target;
     transport->async_request(
         std::move(request), std::move(context),
-        [handler = std::move(handler)](
+        [self = shared_from_this(), endpoint,
+         handler = std::move(handler)](
             Result<net::HttpResponse> result) mutable {
           if (!result)
             return handler(result.error());
@@ -97,8 +152,15 @@ struct AuthClient::Impl : public std::enable_shared_from_this<Impl> {
                                       "Predict.fun authentication rejected"));
           }
           if (status == 429) {
+            const auto retry = net::parse_retry_after(
+                result.value().header("Retry-After"),
+                std::chrono::system_clock::now(),
+                std::chrono::milliseconds{500});
+            self->limiter->penalize(endpoint,
+                                    std::chrono::steady_clock::now(), retry);
             return handler(http_error(ErrorCode::rate_limited, status,
-                                      "Predict.fun rate limit exceeded"));
+                                      "Predict.fun rate limit exceeded",
+                                      retry));
           }
           if (status >= 500) {
             return handler(http_error(ErrorCode::http_server_error, status,
@@ -112,6 +174,7 @@ struct AuthClient::Impl : public std::enable_shared_from_this<Impl> {
   asio::any_io_executor executor;
   std::shared_ptr<net::HttpTransport> transport;
   ClientOptions options;
+  std::shared_ptr<net::RateLimiter> limiter;
 };
 
 AuthClient::AuthClient(asio::any_io_executor executor,

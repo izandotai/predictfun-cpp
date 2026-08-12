@@ -247,6 +247,30 @@ void test_dynamic_subscription_uses_live_session() {
   harness.pump();
 }
 
+void test_open_without_live_does_not_reset_backoff() {
+  Harness harness;
+  auto options = harness.options();
+  options.reconnect_initial = std::chrono::milliseconds{20};
+  options.reconnect_max = std::chrono::milliseconds{80};
+  options.reconnect_jitter_percent = 0U;
+  options.reconnect_storm_attempts = 100U;
+  public_wss::PublicWsClient client(harness.io.get_executor(), options,
+                                    harness.factory());
+  client.start({orderbook()});
+  harness.pump();
+  CHECK(harness.channels.size() == 1U);
+  harness.channels[0]->emit("{");
+  harness.pump(std::chrono::milliseconds{25});
+  CHECK(harness.channels.size() == 2U);
+  harness.channels[1]->emit("{");
+  harness.pump(std::chrono::milliseconds{25});
+  CHECK(harness.channels.size() == 2U);
+  harness.pump(std::chrono::milliseconds{25});
+  CHECK(harness.channels.size() == 3U);
+  client.stop();
+  harness.pump();
+}
+
 } // namespace
 
 int main() {
@@ -254,6 +278,7 @@ int main() {
   test_regression_reconnect_and_resubscribe();
   test_bounded_queue_resync();
   test_dynamic_subscription_uses_live_session();
+  test_open_without_live_does_not_reset_backoff();
   if (failures != 0)
     std::cerr << failures << " public WSS checks failed\n";
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

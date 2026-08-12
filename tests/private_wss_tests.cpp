@@ -168,9 +168,12 @@ void test_reconciliation_gate_and_reconnect() {
   CHECK(channel->writes.back() == R"({"method":"heartbeat","data":12345})");
 
   channel->emit("malformed jwt.secret.value");
+  const auto stale_generation = generation;
+  client.mark_reconciled(stale_generation);
   harness.pump(std::chrono::milliseconds{10});
   CHECK(client.stats().reconnects >= 1U);
   CHECK(harness.channels.size() >= 2U);
+  CHECK(client.state() != PrivateWsState::live);
   auto state_seen = false;
   while (auto event = client.try_pop_event()) {
     if (auto *state = std::get_if<PrivateWsStateEvent>(&*event)) {

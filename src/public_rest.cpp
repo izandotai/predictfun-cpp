@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <cctype>
-#include <charconv>
 #include <chrono>
 #include <format>
 #include <memory>
@@ -79,16 +78,10 @@ Result<std::string> collection_target(std::string base, const Query &query) {
 
 std::chrono::milliseconds retry_after(const net::HttpResponse &response,
                                       std::size_t attempt) {
-  const auto value = response.header("Retry-After");
-  std::uint64_t seconds = 0;
-  const auto result =
-      std::from_chars(value.data(), value.data() + value.size(), seconds);
-  if (!value.empty() && result.ec == std::errc{} &&
-      result.ptr == value.data() + value.size()) {
-    return std::chrono::milliseconds{std::min<std::uint64_t>(seconds, 60U) *
-                                     1'000U};
-  }
-  return std::chrono::milliseconds{100U << std::min<std::size_t>(attempt, 6U)};
+  return net::parse_retry_after(
+      response.header("Retry-After"), std::chrono::system_clock::now(),
+      std::chrono::milliseconds{100U
+                                << std::min<std::size_t>(attempt, 6U)});
 }
 
 Error http_error(ErrorCode code, int status, std::string message,
@@ -218,7 +211,10 @@ struct PublicRestClient::Impl : public std::enable_shared_from_this<Impl> {
        ClientOptions options_value)
       : executor(std::move(executor_value)),
         transport(std::move(transport_value)),
-        options(std::move(options_value)), limiter(options.rate_limits) {
+        options(std::move(options_value)),
+        limiter(options.rate_limiter
+                    ? options.rate_limiter
+                    : std::make_shared<net::RateLimiter>(options.rate_limits)) {
     if (!transport)
       throw std::invalid_argument("Predict.fun REST transport is required");
   }
@@ -234,7 +230,7 @@ struct PublicRestClient::Impl : public std::enable_shared_from_this<Impl> {
     std::shared_ptr<asio::steady_timer> timer;
     std::optional<std::stop_callback<std::function<void()>>> stop_callback;
 
-    void start(bool apply_rate_limit = true) {
+    void start(bool reserve_budget = true) {
       if (context.cancel.stop_requested())
         return finish(Error{ErrorCode::cancelled, "request cancelled", {}});
       if (context.deadline != std::chrono::steady_clock::time_point{} &&
@@ -242,12 +238,12 @@ struct PublicRestClient::Impl : public std::enable_shared_from_this<Impl> {
         return finish(Error{
             ErrorCode::deadline_exceeded, "request deadline exceeded", {}});
       }
-      const auto wait = apply_rate_limit
-                            ? owner->limiter.reserve(
+      const auto wait = reserve_budget
+                            ? owner->limiter->reserve(
                                   endpoint, std::chrono::steady_clock::now())
                             : std::chrono::milliseconds{0};
       if (wait.count() > 0) {
-        return schedule(wait, true);
+        return schedule(wait, false);
       }
       send();
     }
@@ -302,6 +298,8 @@ struct PublicRestClient::Impl : public std::enable_shared_from_this<Impl> {
       }
       if (response.status == 429) {
         const auto delay = retry_after(response, attempt);
+        owner->limiter->penalize(endpoint, std::chrono::steady_clock::now(),
+                                 delay);
         if (attempt++ < owner->options.max_get_retries)
           return schedule(delay, false);
         return finish(http_error(ErrorCode::rate_limited, response.status,
@@ -310,7 +308,7 @@ struct PublicRestClient::Impl : public std::enable_shared_from_this<Impl> {
       if (response.status >= 500) {
         const auto delay = retry_after(response, attempt);
         if (attempt++ < owner->options.max_get_retries)
-          return schedule(delay, false);
+          return schedule(delay, true);
         return finish(http_error(ErrorCode::http_server_error, response.status,
                                  "Predict.fun server error", delay));
       }
@@ -318,7 +316,7 @@ struct PublicRestClient::Impl : public std::enable_shared_from_this<Impl> {
                         "Predict.fun request rejected"));
     }
 
-    void schedule(std::chrono::milliseconds delay, bool apply_rate_limit) {
+    void schedule(std::chrono::milliseconds delay, bool reserve_budget) {
       const auto now = std::chrono::steady_clock::now();
       if (context.deadline != std::chrono::steady_clock::time_point{} &&
           now + delay >= context.deadline) {
@@ -328,12 +326,12 @@ struct PublicRestClient::Impl : public std::enable_shared_from_this<Impl> {
       }
       timer = std::make_shared<asio::steady_timer>(owner->executor);
       timer->expires_after(delay);
-      timer->async_wait([self = shared_from_this(), apply_rate_limit](
+      timer->async_wait([self = shared_from_this(), reserve_budget](
                             const boost::system::error_code &error) {
         if (error)
           return self->finish(
               Error{ErrorCode::cancelled, "request wait cancelled", {}});
-        self->start(apply_rate_limit);
+        self->start(reserve_budget);
       });
     }
 
@@ -382,7 +380,7 @@ struct PublicRestClient::Impl : public std::enable_shared_from_this<Impl> {
   asio::any_io_executor executor;
   std::shared_ptr<net::HttpTransport> transport;
   ClientOptions options;
-  net::RateLimiter limiter;
+  std::shared_ptr<net::RateLimiter> limiter;
 };
 
 PublicRestClient::PublicRestClient(

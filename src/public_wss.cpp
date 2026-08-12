@@ -1,4 +1,5 @@
 #include "predictfun/public_wss/client.hpp"
+#include "predictfun/net/reconnect.hpp"
 
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/steady_timer.hpp>
@@ -20,6 +21,17 @@ namespace predictfun::public_wss {
 namespace {
 
 namespace asio = boost::asio;
+
+net::ReconnectPolicy reconnect_policy(const ClientOptions &options) {
+  net::ReconnectPolicy policy;
+  policy.initial = options.reconnect_initial;
+  policy.maximum = options.reconnect_max;
+  policy.jitter_percent = options.reconnect_jitter_percent;
+  policy.storm_attempts = options.reconnect_storm_attempts;
+  policy.storm_window = options.reconnect_storm_window;
+  policy.storm_cooldown = options.reconnect_storm_cooldown;
+  return policy;
+}
 
 bool snapshot_backed(PublicTopicKind kind) {
   return kind == PublicTopicKind::orderbook ||
@@ -98,7 +110,9 @@ struct PublicWsClient::Impl
   Impl(asio::any_io_executor executor_value, ClientOptions options_value,
        net::WebSocketChannelFactory factory_value)
       : executor(std::move(executor_value)), strand(asio::make_strand(executor)),
-        options(std::move(options_value)), factory(std::move(factory_value)),
+        options(std::move(options_value)),
+        reconnect_backoff(reconnect_policy(options)),
+        factory(std::move(factory_value)),
         reconnect_timer(strand), heartbeat_timer(strand), ack_timer(strand) {
     if (!factory) {
       const auto channel_executor = executor;
@@ -139,13 +153,14 @@ struct PublicWsClient::Impl
                      TopicRuntime{std::move(topic), false, false, std::nullopt});
     }
     started = true;
-    reconnect_delay = options.reconnect_initial;
+    reconnect_backoff.mark_stable();
     connect();
   }
 
   void hard_stop(std::string reason) {
     started = false;
     session_open = false;
+    reconnect_pending = false;
     reconnect_timer.cancel();
     heartbeat_timer.cancel();
     ack_timer.cancel();
@@ -161,6 +176,7 @@ struct PublicWsClient::Impl
   void connect() {
     if (!started)
       return;
+    reconnect_pending = false;
     {
       std::scoped_lock lock(stats_mutex);
       ++stats_value.generation;
@@ -213,7 +229,6 @@ struct PublicWsClient::Impl
     if (!result)
       return schedule_reconnect(result.error().message);
     session_open = true;
-    reconnect_delay = options.reconnect_initial;
     set_state(PublicWsState::subscribing, "connected; subscribing", true);
     arm_heartbeat();
     read_next(generation);
@@ -415,6 +430,8 @@ struct PublicWsClient::Impl
                 false);
       return;
     }
+    if (state_value.load() != PublicWsState::live)
+      reconnect_backoff.mark_stable();
     set_state(PublicWsState::live, "all desired public topics are fresh", false);
   }
 
@@ -447,13 +464,15 @@ struct PublicWsClient::Impl
   }
 
   void schedule_reconnect(std::string reason) {
-    if (!started)
+    if (!started || reconnect_pending)
       return;
+    reconnect_pending = true;
     heartbeat_timer.cancel();
     ack_timer.cancel();
     if (channel)
       channel->cancel();
     channel.reset();
+    session_open = false;
     pending.clear();
     for (auto &[name, runtime] : topics) {
       (void)name;
@@ -462,16 +481,23 @@ struct PublicWsClient::Impl
       runtime.last_timestamp.reset();
     }
     increment_stat(&ClientStats::reconnects);
+    const auto decision =
+        reconnect_backoff.next(std::chrono::steady_clock::now());
+    if (decision.storm_cooldown) {
+      increment_stat(&ClientStats::reconnect_storm_cooldowns);
+      reason += std::format("; reconnect storm cooldown {} ms",
+                            decision.delay.count());
+    }
     set_state(PublicWsState::reconnect_wait, std::move(reason), true);
-    const auto delay = reconnect_delay;
-    reconnect_delay = std::min(reconnect_delay * 2, options.reconnect_max);
-    reconnect_timer.expires_after(delay);
+    reconnect_timer.expires_after(decision.delay);
     reconnect_timer.async_wait(
         [weak = weak_from_this()](const boost::system::error_code &error) {
           if (error)
             return;
-          if (auto self = weak.lock())
+          if (auto self = weak.lock()) {
+            self->reconnect_pending = false;
             self->connect();
+          }
         });
   }
 
@@ -560,6 +586,7 @@ struct PublicWsClient::Impl
   asio::any_io_executor executor;
   asio::strand<asio::any_io_executor> strand;
   ClientOptions options;
+  net::ReconnectBackoff reconnect_backoff;
   net::WebSocketChannelFactory factory;
   std::shared_ptr<net::WebSocketChannel> channel;
   asio::steady_timer reconnect_timer;
@@ -569,7 +596,6 @@ struct PublicWsClient::Impl
   std::map<std::int64_t, PendingRequest> pending;
   std::uint64_t next_request_id{1};
   std::uint64_t state_generation{0};
-  std::chrono::milliseconds reconnect_delay{250};
   std::atomic<PublicWsState> state_value{PublicWsState::stopped};
   mutable std::mutex queue_mutex;
   mutable std::mutex stats_mutex;
@@ -578,6 +604,7 @@ struct PublicWsClient::Impl
   ClientStats stats_value;
   bool started{false};
   bool session_open{false};
+  bool reconnect_pending{false};
 };
 
 PublicWsClient::PublicWsClient(

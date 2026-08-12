@@ -224,6 +224,27 @@ void test_http_error_does_not_parse_secret_body() {
         std::string::npos);
 }
 
+void test_auth_rate_limit_exposes_retry_after() {
+  boost::asio::io_context io;
+  auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
+  auto throttled = response(429, "ignored-secret");
+  throttled.headers.push_back({"Retry-After", "2"});
+  transport->push(std::move(throttled));
+  predictfun::auth::AuthClient client(io.get_executor(), transport);
+  std::optional<Result<predictfun::AuthMessage>> result;
+  client.async_get_message(
+      predictfun::net::RequestContext::with_timeout(std::chrono::seconds{1}),
+      [&result](Result<predictfun::AuthMessage> value) {
+        result.emplace(std::move(value));
+      });
+  io.run();
+  CHECK(result.has_value());
+  CHECK(!*result);
+  CHECK(result->error().code == ErrorCode::rate_limited);
+  CHECK(result->error().retry_after_ms == 2'000U);
+  CHECK(result->error().message.find("ignored-secret") == std::string::npos);
+}
+
 } // namespace
 
 int main() {
@@ -231,6 +252,7 @@ int main() {
   test_mainnet_requires_api_key();
   test_full_authentication_flow();
   test_http_error_does_not_parse_secret_body();
+  test_auth_rate_limit_exposes_retry_after();
   if (failures != 0)
     std::cerr << failures << " test(s) failed\n";
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

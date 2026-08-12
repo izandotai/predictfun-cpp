@@ -154,6 +154,7 @@ predictfun_enable_warnings(predictfun_codec)
 add_library(predictfun_net STATIC
     src/http.cpp
     src/rate_limiter.cpp
+    src/reconnect.cpp
     src/websocket.cpp
 )
 add_library(predictfun::net ALIAS predictfun_net)
@@ -560,6 +561,12 @@ if(PREDICTFUN_BUILD_TESTS)
     )
     predictfun_enable_warnings(predictfun_http_transport_tests)
     add_test(NAME http_transport COMMAND predictfun_http_transport_tests)
+
+    add_executable(predictfun_reconnect_tests tests/reconnect_tests.cpp)
+    target_compile_features(predictfun_reconnect_tests PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_reconnect_tests PRIVATE predictfun::net)
+    predictfun_enable_warnings(predictfun_reconnect_tests)
+    add_test(NAME reconnect COMMAND predictfun_reconnect_tests)
 
     add_executable(predictfun_websocket_codec_tests
         tests/websocket_codec_tests.cpp

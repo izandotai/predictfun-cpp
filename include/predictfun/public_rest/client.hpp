@@ -22,6 +22,9 @@ struct ClientOptions {
   ApiKeyProvider api_key;
   codec::DecodeLimits decode_limits;
   net::RateLimitPolicy rate_limits;
+  // Share one limiter across every client using the same API key. When unset,
+  // the client creates a private limiter from rate_limits.
+  std::shared_ptr<net::RateLimiter> rate_limiter;
   std::size_t max_get_retries{2U};
 };
 

@@ -297,6 +297,65 @@ void test_rate_limiter_reservations() {
   CHECK(third <= std::chrono::milliseconds{120'001});
 }
 
+void test_rate_limiter_cooldowns_and_retry_after() {
+  predictfun::net::RateLimitPolicy policy;
+  policy.global_requests_per_minute = 60'000U;
+  policy.endpoint_requests_per_minute.emplace("market", 60'000U);
+  predictfun::net::RateLimiter limiter(policy);
+  const auto now = std::chrono::steady_clock::now();
+  limiter.penalize("market", now, std::chrono::seconds{5});
+  CHECK(limiter.reserve("market", now) >= std::chrono::seconds{5});
+  CHECK(limiter.reserve("orderbook", now) < std::chrono::milliseconds{10});
+
+  predictfun::net::RateLimiter global_limiter(policy);
+  global_limiter.penalize("market", now, std::chrono::seconds{4}, true);
+  CHECK(global_limiter.reserve("orderbook", now) >=
+        std::chrono::seconds{4});
+
+  const auto epoch = std::chrono::system_clock::from_time_t(0);
+  CHECK(predictfun::net::parse_retry_after(
+            "7", epoch, std::chrono::milliseconds{1}) ==
+        std::chrono::seconds{7});
+  CHECK(predictfun::net::parse_retry_after(
+            "Thu, 01 Jan 1970 00:01:00 GMT", epoch,
+            std::chrono::milliseconds{1}) == std::chrono::seconds{60});
+  CHECK(predictfun::net::parse_retry_after(
+            "invalid", epoch, std::chrono::milliseconds{321}) ==
+        std::chrono::milliseconds{321});
+  CHECK(predictfun::net::parse_retry_after(
+            "999", epoch, std::chrono::milliseconds{1},
+            std::chrono::seconds{9}) == std::chrono::seconds{9});
+}
+
+void test_rate_wait_consumes_reservation_once() {
+  boost::asio::io_context io;
+  auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
+  transport->push(response(200, market_json));
+  transport->push(response(200, market_json));
+  predictfun::public_rest::ClientOptions options;
+  options.rate_limits.global_requests_per_minute = 60'000U;
+  predictfun::public_rest::PublicRestClient client(io.get_executor(), transport,
+                                                   options);
+  std::optional<Result<predictfun::Market>> first;
+  std::optional<Result<predictfun::Market>> second;
+  client.async_get_market(
+      predictfun::MarketId{42U},
+      RequestContext::with_timeout(std::chrono::seconds{1}),
+      [&first](Result<predictfun::Market> value) {
+        first.emplace(std::move(value));
+      });
+  client.async_get_market(
+      predictfun::MarketId{42U},
+      RequestContext::with_timeout(std::chrono::seconds{1}),
+      [&second](Result<predictfun::Market> value) {
+        second.emplace(std::move(value));
+      });
+  io.run();
+  CHECK(first && *first);
+  CHECK(second && *second);
+  CHECK(transport->requests.size() == 2U);
+}
+
 void test_cancel_during_rate_wait() {
   boost::asio::io_context io;
   auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
@@ -333,6 +392,56 @@ void test_cancel_during_rate_wait() {
   CHECK(transport->requests.size() == 1U);
 }
 
+void test_shared_limiter_propagates_server_cooldown() {
+  boost::asio::io_context io;
+  auto limiter = std::make_shared<predictfun::net::RateLimiter>();
+
+  auto first_transport =
+      std::make_shared<ScriptedTransport>(io.get_executor());
+  auto throttled = response(429);
+  throttled.headers.push_back({"Retry-After", "1"});
+  first_transport->push(std::move(throttled));
+
+  predictfun::public_rest::ClientOptions options;
+  options.max_get_retries = 0U;
+  options.rate_limiter = limiter;
+  predictfun::public_rest::PublicRestClient first_client(
+      io.get_executor(), first_transport, options);
+  std::optional<Result<predictfun::Market>> first;
+  first_client.async_get_market(
+      predictfun::MarketId{42U},
+      RequestContext::with_timeout(std::chrono::seconds{1}),
+      [&first](Result<predictfun::Market> value) {
+        first.emplace(std::move(value));
+      });
+  io.run();
+
+  CHECK(first.has_value());
+  CHECK(!*first);
+  CHECK(first->error().code == ErrorCode::rate_limited);
+  CHECK(first_transport->requests.size() == 1U);
+
+  io.restart();
+  auto second_transport =
+      std::make_shared<ScriptedTransport>(io.get_executor());
+  second_transport->push(response(200, market_json));
+  predictfun::public_rest::PublicRestClient second_client(
+      io.get_executor(), second_transport, options);
+  std::optional<Result<predictfun::Market>> second;
+  second_client.async_get_market(
+      predictfun::MarketId{42U},
+      RequestContext::with_timeout(std::chrono::milliseconds{10}),
+      [&second](Result<predictfun::Market> value) {
+        second.emplace(std::move(value));
+      });
+  io.run();
+
+  CHECK(second.has_value());
+  CHECK(!*second);
+  CHECK(second->error().code == ErrorCode::deadline_exceeded);
+  CHECK(second_transport->requests.empty());
+}
+
 } // namespace
 
 int main() {
@@ -341,7 +450,10 @@ int main() {
   test_mainnet_requires_key();
   test_retry_and_http_classification();
   test_rate_limiter_reservations();
+  test_rate_limiter_cooldowns_and_retry_after();
+  test_rate_wait_consumes_reservation_once();
   test_cancel_during_rate_wait();
+  test_shared_limiter_propagates_server_cooldown();
   test_matches_codec_and_client();
 
   if (failures != 0) {

@@ -13,7 +13,7 @@ Updated: 2026-08-12
 | P4 deterministic order builder | complete | official SDK/ethers golden vectors and local signer tests |
 | P5 trading/reconciliation | implementation complete | `trading`, `lifecycle`, match/order REST and `p5_boundary` tests |
 | P6 BNB wallet operations | implementation complete | deterministic transaction/approval gate complete; live testnet evidence pending |
-| P7 hardening/release | in progress | durable lifecycle recovery implemented; remaining matrix below |
+| P7 hardening/release | in progress | durable recovery, shared rate budgets and reconnect-storm protection implemented |
 
 ## Completed P3 checklist
 
@@ -103,9 +103,12 @@ P7 durable recovery is implemented without integrating PMT:
 - [x] Torn-tail repair and fail-closed interior corruption handling.
 - [x] Restart quarantine for all nonterminal/ambiguous orders.
 - [x] Credential-free recovery example.
-- [ ] Rate-budget and reconnect-storm hardening.
+- [x] Shared global/endpoint rate budgets, `Retry-After` parsing and cooldown
+  propagation across REST/auth/trading clients.
+- [x] Public/private WebSocket exponential backoff, jitter, stable-session
+  reset semantics and reconnect-storm circuit breaker.
 - [ ] Fuzz/property tests and sanitizer jobs.
 - [ ] Installed-package consumer matrix.
 - [ ] Explicitly gated testnet operation harness.
 
-Next: complete endpoint rate-budget parsing and reconnect-storm protection.
+Next: complete property/fuzz tests and sanitizer/fault-injection jobs.
