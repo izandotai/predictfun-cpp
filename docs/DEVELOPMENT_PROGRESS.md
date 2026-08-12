@@ -12,7 +12,7 @@ Updated: 2026-08-12
 | P3 authentication/private read | complete | private REST, wallet WSS, reconciliation gate and `p3_boundary` tests |
 | P4 deterministic order builder | complete | official SDK/ethers golden vectors and local signer tests |
 | P5 trading/reconciliation | implementation complete | `trading`, `lifecycle`, match/order REST and `p5_boundary` tests |
-| P6 BNB wallet operations | pending | testnet receipt/balance gate required |
+| P6 BNB wallet operations | in progress | deterministic chain/ABI gate complete; testnet receipt/balance gate pending |
 | P7 hardening/release | pending | fresh-clone Debug/Release matrix required |
 
 ## Completed P3 checklist
@@ -71,10 +71,27 @@ P4 provenance and constraints:
   cancellation.
 - [x] Compile and pass the complete 20-test Debug matrix.
 
+## P6 progress
+
+- [x] Add separately linkable `predictfun::chain` target.
+- [x] Add bounded JSON-RPC reads, chain-id fail-closed validation and receipt
+  decoding.
+- [x] Add USDT/ERC-1155 balance and allowance queries.
+- [x] Add minimal, operation-scoped approval plans and approval transaction
+  builders for all standard, negative-risk and yield-bearing tracks.
+- [x] Add byte-exact ABI builders for split, merge, redeem, convert and
+  exchange `cancelOrders`, independently checked against Foundry `cast`.
+- [x] Add explicit EOA/Predict Account routing; Predict Account calls are
+  wrapped through Kernel `execute(bytes32,bytes)`.
+- [ ] Add gas/nonce estimation, raw transaction submission and receipt waiter.
+- [ ] Add optional local EIP-155 transaction signing plus external signer
+  workflow.
+- [ ] Add approval check/run/progress orchestration.
+- [ ] Prove balance transitions and receipts on caller-authorized testnet.
+
 ## Next implementation step
 
-Implement P6 as a separately linkable BNB-chain layer: bounded typed JSON-RPC,
-chain-id verification, ABI call/transaction builders, balances/allowances,
-approval planning and receipt tracking first; then standard, negative-risk and
-yield-bearing split/merge/convert/redeem plus on-chain cancellation. This
-remains inside predictfun-cpp; no PMT integration is introduced.
+Complete the transaction execution half of P6: gas/nonce queries, local and
+external signing paths, raw submission with ambiguity-safe semantics, receipt
+waiting, and approval check/run progress. This remains inside predictfun-cpp;
+no PMT integration is introduced.

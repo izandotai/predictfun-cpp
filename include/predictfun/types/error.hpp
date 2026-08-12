@@ -44,6 +44,9 @@ enum class ErrorCode {
   invalid_orderbook,
   venue_rejected,
   ambiguous_submission,
+  remote_error,
+  unsupported_chain,
+  execution_reverted,
 };
 
 struct Error {

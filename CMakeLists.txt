@@ -119,6 +119,7 @@ add_library(predictfun_types STATIC
     src/secret.cpp
     src/auth_types.cpp
     src/orderbook.cpp
+    src/chain_types.cpp
 )
 add_library(predictfun::types ALIAS predictfun_types)
 target_compile_features(predictfun_types PUBLIC cxx_std_20)
@@ -309,6 +310,25 @@ target_link_libraries(predictfun_order
 )
 predictfun_enable_warnings(predictfun_order)
 
+add_library(predictfun_chain STATIC
+    src/chain_abi.cpp
+    src/chain_approvals.cpp
+    src/chain_client.cpp
+    src/chain_operations.cpp
+)
+add_library(predictfun::chain ALIAS predictfun_chain)
+target_compile_features(predictfun_chain PUBLIC cxx_std_20)
+target_include_directories(predictfun_chain
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+target_link_libraries(predictfun_chain
+    PUBLIC predictfun::types predictfun::net predictfun::order
+    PRIVATE $<BUILD_INTERFACE:glaze::glaze>
+)
+predictfun_enable_warnings(predictfun_chain)
+
 if(PREDICTFUN_BUILD_LOCAL_SIGNER)
     add_library(predictfun_local_signer STATIC
         src/local_signer.cpp
@@ -341,6 +361,7 @@ set_target_properties(predictfun_private_wss PROPERTIES EXPORT_NAME private_wss)
 set_target_properties(predictfun_trading PROPERTIES EXPORT_NAME trading)
 set_target_properties(predictfun_lifecycle PROPERTIES EXPORT_NAME lifecycle)
 set_target_properties(predictfun_order PROPERTIES EXPORT_NAME order)
+set_target_properties(predictfun_chain PROPERTIES EXPORT_NAME chain)
 if(PREDICTFUN_BUILD_LOCAL_SIGNER)
     set_target_properties(predictfun_local_signer PROPERTIES
         EXPORT_NAME local_signer)
@@ -350,7 +371,7 @@ set(PREDICTFUN_INSTALL_TARGETS
     predictfun_types predictfun_codec predictfun_net predictfun_public_rest
     predictfun_public_wss predictfun_auth predictfun_private_rest
     predictfun_private_wss predictfun_trading predictfun_lifecycle
-    predictfun_order)
+    predictfun_order predictfun_chain)
 if(PREDICTFUN_BUILD_LOCAL_SIGNER)
     list(APPEND PREDICTFUN_INSTALL_TARGETS predictfun_local_signer)
 endif()
@@ -471,6 +492,12 @@ if(PREDICTFUN_BUILD_TESTS)
     predictfun_enable_warnings(predictfun_order_tests)
     add_test(NAME order COMMAND predictfun_order_tests)
 
+    add_executable(predictfun_chain_tests tests/chain_tests.cpp)
+    target_compile_features(predictfun_chain_tests PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_chain_tests PRIVATE predictfun::chain)
+    predictfun_enable_warnings(predictfun_chain_tests)
+    add_test(NAME chain COMMAND predictfun_chain_tests)
+
     if(PREDICTFUN_BUILD_LOCAL_SIGNER)
         add_executable(predictfun_local_signer_tests
             tests/local_signer_tests.cpp
@@ -560,5 +587,11 @@ if(PREDICTFUN_BUILD_TESTS)
         COMMAND ${CMAKE_COMMAND}
             -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_p5_boundary.cmake
+    )
+    add_test(
+        NAME p6_boundary
+        COMMAND ${CMAKE_COMMAND}
+            -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_p6_boundary.cmake
     )
 endif()
