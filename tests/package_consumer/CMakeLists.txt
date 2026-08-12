@@ -24,3 +24,8 @@ target_link_libraries(package_consumer
         predictfun::public_rest
         predictfun::public_wss
 )
+
+add_executable(package_signer_consumer signer.cpp)
+target_compile_features(package_signer_consumer PRIVATE cxx_std_20)
+target_link_libraries(package_signer_consumer
+    PRIVATE predictfun::local_signer)

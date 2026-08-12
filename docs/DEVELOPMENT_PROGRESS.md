@@ -10,12 +10,12 @@ Updated: 2026-08-12
 | P1 public REST | complete | `public_rest`, `http_transport`, `p1_boundary` tests |
 | P2 public WebSocket | complete | WSS codec/client/transport and `p2_boundary` tests |
 | P3 authentication/private read | complete | private REST, wallet WSS, reconciliation gate and `p3_boundary` tests |
-| P4 deterministic order builder | pending | official cross-SDK golden vectors required |
+| P4 deterministic order builder | complete | official SDK/ethers golden vectors and local signer tests |
 | P5 trading/reconciliation | pending | testnet mutation gate required |
 | P6 BNB wallet operations | pending | testnet receipt/balance gate required |
 | P7 hardening/release | pending | fresh-clone Debug/Release matrix required |
 
-## Active P3 checklist
+## Completed P3 checklist
 
 - [x] Audit present targets and compare them with the official endpoint/SDK
   surface.
@@ -34,17 +34,32 @@ Updated: 2026-08-12
 - [x] Extend P3 secret/authority boundary across every private-read module.
 - [x] Compile and pass deterministic private REST/WSS acceptance tests.
 
-## Active P4 checklist
+## Completed P4 checklist
 
-- [ ] Add integer-only amount math for LIMIT and MARKET orders.
-- [ ] Add official BNB mainnet/testnet contract registry with provenance.
-- [ ] Build canonical EIP-712 domain, order struct, digest and order hash.
-- [ ] Add recoverable secp256k1 EOA signing behind a separately linkable target.
-- [ ] Add Predict Account signature envelope support.
-- [ ] Cross-check golden vectors byte-for-byte against the official SDK.
+- [x] Add integer-only amount math for LIMIT and MARKET orders.
+- [x] Add official BNB mainnet/testnet contract registry with provenance.
+- [x] Build canonical EIP-712 domain, order struct, digest and order hash.
+- [x] Add recoverable secp256k1 EOA signing behind a separately linkable target.
+- [x] Add Predict Account signature envelope support.
+- [x] Cross-check golden vectors byte-for-byte against the official SDK.
+
+P4 provenance and constraints:
+
+- Venue behavior was audited against Predict's official SDK at commit
+  `5ff2b4a1c54cbbeb0fd661e17246cd12a9af8486`.
+- Mainnet/testnet domain and order hashes were generated independently with
+  `ethers`, then frozen as C++ golden vectors.
+- The local signer pins Bitcoin Core `libsecp256k1` v0.7.1 by SHA-256 and is a
+  separate CMake target. Public/read-only consumers do not link signing code.
+- The signer accepts only an explicit move-only in-memory secret. It does not
+  read `.env`, files or process environment variables.
+- Market order construction is intentionally stricter than the official
+  helper: insufficient visible depth is rejected instead of silently building
+  an order from a partial book.
 
 ## Next implementation step
 
-Implement deterministic order math and EIP-712 hashing with official SDK
-golden vectors. This remains a pure local layer: no HTTP mutation or PMT
-integration is introduced.
+Implement P5 mutation codecs and the trading state machine: create/cancel,
+deterministic order correlation, bounded non-blind retry and ambiguous-submit
+quarantine. This remains inside predictfun-cpp; no PMT integration is
+introduced.

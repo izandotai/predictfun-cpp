@@ -33,7 +33,7 @@ SDK acceptance gates below pass.
 - Public WebSocket subscriptions with heartbeat, freshness, reconnect and
   resynchronization semantics.
 
-### P3: authentication and private read foundation — in progress
+### P3: authentication and private read foundation — complete
 
 - General GET/POST transport without secrets in targets or diagnostics.
 - Validated EVM addresses, move-only secret storage and JWT redaction.
@@ -45,7 +45,7 @@ SDK acceptance gates below pass.
 Gate: deterministic mocked lifecycle plus a read-only testnet probe; no private
 key is ever accepted by REST/WSS modules or printed by any error path.
 
-### P4: deterministic order construction
+### P4: deterministic order construction — complete
 
 - Exact limit/market/slippage amount math using integers only.
 - Contract order, strategy, side, STP and fee types.
@@ -55,6 +55,9 @@ key is ever accepted by REST/WSS modules or printed by any error path.
 
 Gate: hashes, signatures and encoded request bodies match official fixtures
 byte-for-byte on BNB mainnet and testnet.
+
+Implemented with a separately linkable `predictfun::local_signer`; callers may
+instead supply an external signer. The SDK never discovers or loads keys.
 
 ### P5: trading API and reconciliation
 

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(predictfun_cpp VERSION 0.1.0 LANGUAGES CXX)
+project(predictfun_cpp VERSION 0.1.0 LANGUAGES C CXX)
 
 include(FetchContent)
 include(GNUInstallDirs)
@@ -8,9 +8,13 @@ include(CMakePackageConfigHelpers)
 
 option(PREDICTFUN_BUILD_TESTS "Build predictfun-cpp tests" ON)
 option(PREDICTFUN_BUILD_TOOLS "Build predictfun-cpp read-only tools" ON)
+option(PREDICTFUN_BUILD_LOCAL_SIGNER
+       "Build the separately linkable in-memory secp256k1 signer" ON)
 option(PREDICTFUN_WARNINGS_AS_ERRORS "Treat warnings in predictfun-cpp as errors" ON)
 set(PREDICTFUN_GLAZE_SOURCE_DIR "" CACHE PATH "Optional pre-verified local Glaze v7.8.4 source")
 set(PREDICTFUN_BOOST_SOURCE_DIR "" CACHE PATH "Optional pre-verified local Boost 1.87.0 source")
+set(PREDICTFUN_SECP256K1_SOURCE_DIR "" CACHE PATH
+    "Optional pre-verified local libsecp256k1 v0.7.1 source")
 
 if(PREDICTFUN_GLAZE_SOURCE_DIR)
     FetchContent_Declare(glaze SOURCE_DIR "${PREDICTFUN_GLAZE_SOURCE_DIR}")
@@ -42,6 +46,36 @@ else()
     )
 endif()
 FetchContent_MakeAvailable(Boost)
+
+if(PREDICTFUN_BUILD_LOCAL_SIGNER)
+    set(SECP256K1_ENABLE_MODULE_ECDH OFF CACHE BOOL "" FORCE)
+    set(SECP256K1_ENABLE_MODULE_RECOVERY ON CACHE BOOL "" FORCE)
+    set(SECP256K1_ENABLE_MODULE_EXTRAKEYS OFF CACHE BOOL "" FORCE)
+    set(SECP256K1_ENABLE_MODULE_SCHNORRSIG OFF CACHE BOOL "" FORCE)
+    set(SECP256K1_ENABLE_MODULE_MUSIG OFF CACHE BOOL "" FORCE)
+    set(SECP256K1_ENABLE_MODULE_ELLSWIFT OFF CACHE BOOL "" FORCE)
+    set(SECP256K1_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
+    set(SECP256K1_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(SECP256K1_BUILD_EXHAUSTIVE_TESTS OFF CACHE BOOL "" FORCE)
+    set(SECP256K1_BUILD_CTIME_TESTS OFF CACHE BOOL "" FORCE)
+    set(SECP256K1_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(SECP256K1_INSTALL ON CACHE BOOL "" FORCE)
+    if(PREDICTFUN_SECP256K1_SOURCE_DIR)
+        FetchContent_Declare(secp256k1
+            SOURCE_DIR "${PREDICTFUN_SECP256K1_SOURCE_DIR}"
+            EXCLUDE_FROM_ALL
+        )
+    else()
+        FetchContent_Declare(
+            secp256k1
+            URL https://github.com/bitcoin-core/secp256k1/archive/refs/tags/v0.7.1.tar.gz
+            URL_HASH SHA256=958F204DBAFC117E73A2604285DC2EB2A5128344D3499C114DCBA5DE54CB7A9E
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+            EXCLUDE_FROM_ALL
+        )
+    endif()
+    FetchContent_MakeAvailable(secp256k1)
+endif()
 
 # Boost's CMake targets are used only to resolve and validate the pinned source
 # tree.  Keep concrete include directories in the build interface so our
@@ -221,6 +255,52 @@ target_link_libraries(predictfun_private_wss
 )
 predictfun_enable_warnings(predictfun_private_wss)
 
+add_library(predictfun_order STATIC
+    src/order_types.cpp
+    src/order_amounts.cpp
+    src/order_eip712.cpp
+    src/order_builder.cpp
+    src/order_signature.cpp
+)
+add_library(predictfun::order ALIAS predictfun_order)
+target_compile_features(predictfun_order PUBLIC cxx_std_20)
+target_include_directories(predictfun_order
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+foreach(PREDICTFUN_BOOST_INCLUDE_DIR IN LISTS PREDICTFUN_BOOST_BUILD_INCLUDE_DIRS)
+    target_include_directories(predictfun_order SYSTEM PRIVATE
+        $<BUILD_INTERFACE:${PREDICTFUN_BOOST_INCLUDE_DIR}>
+    )
+endforeach()
+target_link_libraries(predictfun_order
+    PUBLIC predictfun::types
+    PRIVATE OpenSSL::Crypto
+)
+predictfun_enable_warnings(predictfun_order)
+
+if(PREDICTFUN_BUILD_LOCAL_SIGNER)
+    add_library(predictfun_local_signer STATIC
+        src/local_signer.cpp
+    )
+    add_library(predictfun::local_signer ALIAS predictfun_local_signer)
+    target_compile_features(predictfun_local_signer PUBLIC cxx_std_20)
+    target_include_directories(predictfun_local_signer
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    )
+    target_link_libraries(predictfun_local_signer
+        PUBLIC predictfun::order
+        # Embed the audited C objects in this archive. Installed consumers do
+        # not need a hidden signing dependency and read-only targets remain
+        # unaffected.
+        PRIVATE $<BUILD_INTERFACE:secp256k1_objs>
+    )
+    predictfun_enable_warnings(predictfun_local_signer)
+endif()
+
 set_target_properties(predictfun_types PROPERTIES EXPORT_NAME types)
 set_target_properties(predictfun_codec PROPERTIES EXPORT_NAME codec)
 set_target_properties(predictfun_net PROPERTIES EXPORT_NAME net)
@@ -229,8 +309,20 @@ set_target_properties(predictfun_public_wss PROPERTIES EXPORT_NAME public_wss)
 set_target_properties(predictfun_auth PROPERTIES EXPORT_NAME auth)
 set_target_properties(predictfun_private_rest PROPERTIES EXPORT_NAME private_rest)
 set_target_properties(predictfun_private_wss PROPERTIES EXPORT_NAME private_wss)
+set_target_properties(predictfun_order PROPERTIES EXPORT_NAME order)
+if(PREDICTFUN_BUILD_LOCAL_SIGNER)
+    set_target_properties(predictfun_local_signer PROPERTIES
+        EXPORT_NAME local_signer)
+endif()
 
-install(TARGETS predictfun_types predictfun_codec predictfun_net predictfun_public_rest predictfun_public_wss predictfun_auth predictfun_private_rest predictfun_private_wss
+set(PREDICTFUN_INSTALL_TARGETS
+    predictfun_types predictfun_codec predictfun_net predictfun_public_rest
+    predictfun_public_wss predictfun_auth predictfun_private_rest
+    predictfun_private_wss predictfun_order)
+if(PREDICTFUN_BUILD_LOCAL_SIGNER)
+    list(APPEND PREDICTFUN_INSTALL_TARGETS predictfun_local_signer)
+endif()
+install(TARGETS ${PREDICTFUN_INSTALL_TARGETS}
     EXPORT predictfunTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -328,6 +420,24 @@ if(PREDICTFUN_BUILD_TESTS)
     predictfun_enable_warnings(predictfun_private_wss_tests)
     add_test(NAME private_wss COMMAND predictfun_private_wss_tests)
 
+    add_executable(predictfun_order_tests tests/order_tests.cpp)
+    target_compile_features(predictfun_order_tests PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_order_tests PRIVATE predictfun::order)
+    predictfun_enable_warnings(predictfun_order_tests)
+    add_test(NAME order COMMAND predictfun_order_tests)
+
+    if(PREDICTFUN_BUILD_LOCAL_SIGNER)
+        add_executable(predictfun_local_signer_tests
+            tests/local_signer_tests.cpp
+        )
+        target_compile_features(predictfun_local_signer_tests PRIVATE cxx_std_20)
+        target_link_libraries(predictfun_local_signer_tests
+            PRIVATE predictfun::local_signer
+        )
+        predictfun_enable_warnings(predictfun_local_signer_tests)
+        add_test(NAME local_signer COMMAND predictfun_local_signer_tests)
+    endif()
+
     add_executable(predictfun_http_transport_tests
         tests/http_transport_tests.cpp
     )
@@ -393,5 +503,11 @@ if(PREDICTFUN_BUILD_TESTS)
         COMMAND ${CMAKE_COMMAND}
             -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_p3_boundary.cmake
+    )
+    add_test(
+        NAME p4_boundary
+        COMMAND ${CMAKE_COMMAND}
+            -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_p4_boundary.cmake
     )
 endif()
