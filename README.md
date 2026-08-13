@@ -21,7 +21,8 @@ The current SDK contains independently linkable authority layers:
 - `predictfun::private_rest` and `predictfun::private_wss`: authenticated
   account, activity, position, order and wallet-event reads;
 - `predictfun::order` and optional `predictfun::local_signer`: integer-only
-  order construction, EIP-712 hashing and caller-controlled signing;
+  order construction plus `izan-crypto` EIP-712 hashing and guarded,
+  caller-controlled signing;
 - `predictfun::trading`: single-attempt create/remove mutations with explicit
   ambiguous-result semantics;
 - `predictfun::lifecycle`: private-event plus REST reconciliation state;
@@ -73,8 +74,16 @@ source tree instead of disabling TLS verification:
 ```sh
 cmake --preset dev \
   -DPREDICTFUN_GLAZE_SOURCE_DIR=/verified/path/to/glaze \
-  -DPREDICTFUN_BOOST_SOURCE_DIR=/verified/path/to/boost-1.87
+  -DPREDICTFUN_BOOST_SOURCE_DIR=/verified/path/to/boost-1.87 \
+  -DPREDICTFUN_IZAN_CRYPTO_SOURCE_DIR=/verified/path/to/izan-crypto
 ```
+
+`izan-crypto` is pinned to immutable commit
+`8c6857d911da89a229e6a9911e984601e7cf15fa` and archive SHA-256
+`E70B9BA33D93D98D052A73F88E3A56F340234E3BC8B3B91BE2E5D676DE682149`.
+Read-only targets do not link its signing objects; order hashing links only
+`izan::eip712`, while the separately selected local signer adds
+`izan::secp256k1`.
 
 ## Numeric model
 

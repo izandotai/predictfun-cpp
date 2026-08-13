@@ -1,7 +1,7 @@
 #include "predictfun/order/local_signer.hpp"
 
-#include <secp256k1.h>
-#include <secp256k1_recovery.h>
+#include "core/crypto/eth.hpp"
+#include "core/crypto/secp256k1_key.hpp"
 
 #include <algorithm>
 #include <array>
@@ -52,63 +52,32 @@ Result<std::array<std::uint8_t, 32>> parse_private_key(SecretString key) {
   return result;
 }
 
-std::string signature_hex(const std::array<std::uint8_t, 64> &compact,
-                          int recovery_id) {
+std::string signature_hex(const izan::crypto::EcdsaSignature &signature) {
   constexpr char digits[] = "0123456789abcdef";
   std::string result{"0x"};
   result.reserve(132U);
-  for (const auto byte : compact) {
+  for (const auto byte : signature.r) {
     result.push_back(digits[byte >> 4U]);
     result.push_back(digits[byte & 0x0fU]);
   }
-  const auto v = static_cast<std::uint8_t>(27 + recovery_id);
+  for (const auto byte : signature.s) {
+    result.push_back(digits[byte >> 4U]);
+    result.push_back(digits[byte & 0x0fU]);
+  }
+  const auto v = static_cast<std::uint8_t>(27U + signature.y_parity);
   result.push_back(digits[v >> 4U]);
   result.push_back(digits[v & 0x0fU]);
   return result;
 }
 
-Result<EvmAddress> address_from_public_key(
-    const secp256k1_context *context,
-    const std::array<std::uint8_t, 32> &private_key) {
-  secp256k1_pubkey public_key{};
-  if (secp256k1_ec_pubkey_create(context, &public_key, private_key.data()) != 1)
-    return Error{ErrorCode::invalid_field, "private key is not valid",
-                 "private_key"};
-  std::array<std::uint8_t, 65> serialized{};
-  auto serialized_size = serialized.size();
-  if (secp256k1_ec_pubkey_serialize(context, serialized.data(),
-                                    &serialized_size, &public_key,
-                                    SECP256K1_EC_UNCOMPRESSED) != 1 ||
-      serialized_size != serialized.size())
-    return Error{ErrorCode::protocol_error,
-                 "cannot derive an EVM public key", {}};
-  auto digest = keccak256(std::span<const std::uint8_t>{serialized}.subspan(1));
-  secure_erase_bytes(serialized);
-  if (!digest)
-    return digest.error();
-  constexpr char digits[] = "0123456789abcdef";
-  std::string encoded{"0x"};
-  encoded.reserve(42U);
-  for (auto iterator = digest.value().end() - 20; iterator != digest.value().end();
-       ++iterator) {
-    encoded.push_back(digits[*iterator >> 4U]);
-    encoded.push_back(digits[*iterator & 0x0fU]);
-  }
-  return EvmAddress::parse(encoded);
-}
-
 } // namespace
 
 struct LocalSigner::Impl {
-  std::array<std::uint8_t, 32> private_key{};
-  secp256k1_context *context{nullptr};
+  izan::crypto::Secp256k1PrivateKey private_key;
   EvmAddress address;
 
-  ~Impl() {
-    secure_erase_bytes(private_key);
-    if (context != nullptr)
-      secp256k1_context_destroy(context);
-  }
+  Impl(izan::crypto::Secp256k1PrivateKey key, EvmAddress derived)
+      : private_key(std::move(key)), address(derived) {}
 };
 
 LocalSigner::LocalSigner(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
@@ -120,41 +89,28 @@ Result<LocalSigner> LocalSigner::create(SecretString private_key) {
   auto decoded = parse_private_key(std::move(private_key));
   if (!decoded)
     return decoded.error();
-  auto impl = std::make_unique<Impl>();
-  impl->private_key = decoded.value();
+  auto guarded = izan::crypto::Secp256k1PrivateKey::from_bytes(decoded.value());
   secure_erase_bytes(decoded.value());
-  impl->context = secp256k1_context_create(SECP256K1_CONTEXT_SIGN);
-  if (impl->context == nullptr)
-    return Error{ErrorCode::protocol_error,
-                 "cannot create secp256k1 signing context", {}};
-  if (secp256k1_ec_seckey_verify(impl->context, impl->private_key.data()) != 1)
+  if (!guarded)
     return Error{ErrorCode::invalid_field, "private key is not valid",
                  "private_key"};
-  auto derived = address_from_public_key(impl->context, impl->private_key);
+  auto public_key = guarded->public_key_uncompressed();
+  auto derived = EvmAddress::parse(izan::crypto::eth_address(public_key));
+  secure_erase_bytes(public_key);
   if (!derived)
     return derived.error();
-  impl->address = derived.value();
-  return LocalSigner{std::move(impl)};
+  return LocalSigner{std::make_unique<Impl>(std::move(*guarded),
+                                             derived.value())};
 }
 
 const EvmAddress &LocalSigner::address() const noexcept { return impl_->address; }
 
 Result<std::string> LocalSigner::sign_digest(const Hash32 &digest) const {
-  secp256k1_ecdsa_recoverable_signature signature{};
-  if (secp256k1_ecdsa_sign_recoverable(
-          impl_->context, &signature, digest.data(), impl_->private_key.data(),
-          nullptr, nullptr) != 1)
+  auto signature = impl_->private_key.sign_digest(digest);
+  if (!signature)
     return Error{ErrorCode::protocol_error,
                  "secp256k1 signing failed", {}};
-  std::array<std::uint8_t, 64> compact{};
-  int recovery_id = 0;
-  if (secp256k1_ecdsa_recoverable_signature_serialize_compact(
-          impl_->context, compact.data(), &recovery_id, &signature) != 1)
-    return Error{ErrorCode::protocol_error,
-                 "cannot serialize secp256k1 signature", {}};
-  auto encoded = signature_hex(compact, recovery_id);
-  secure_erase_bytes(compact);
-  return encoded;
+  return signature_hex(*signature);
 }
 
 Result<std::string>

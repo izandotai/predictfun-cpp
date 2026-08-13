@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.25)
+cmake_minimum_required(VERSION 3.28)
 
 project(predictfun_cpp VERSION 0.1.0 LANGUAGES C CXX)
 
@@ -15,8 +15,8 @@ option(PREDICTFUN_BUILD_FUZZERS
 option(PREDICTFUN_WARNINGS_AS_ERRORS "Treat warnings in predictfun-cpp as errors" ON)
 set(PREDICTFUN_GLAZE_SOURCE_DIR "" CACHE PATH "Optional pre-verified local Glaze v7.8.4 source")
 set(PREDICTFUN_BOOST_SOURCE_DIR "" CACHE PATH "Optional pre-verified local Boost 1.87.0 source")
-set(PREDICTFUN_SECP256K1_SOURCE_DIR "" CACHE PATH
-    "Optional pre-verified local libsecp256k1 v0.7.1 source")
+set(PREDICTFUN_IZAN_CRYPTO_SOURCE_DIR "" CACHE PATH
+    "Optional pre-verified local izan-crypto source")
 
 if(PREDICTFUN_GLAZE_SOURCE_DIR)
     FetchContent_Declare(glaze SOURCE_DIR "${PREDICTFUN_GLAZE_SOURCE_DIR}")
@@ -49,35 +49,20 @@ else()
 endif()
 FetchContent_MakeAvailable(Boost)
 
-if(PREDICTFUN_BUILD_LOCAL_SIGNER)
-    set(SECP256K1_ENABLE_MODULE_ECDH OFF CACHE BOOL "" FORCE)
-    set(SECP256K1_ENABLE_MODULE_RECOVERY ON CACHE BOOL "" FORCE)
-    set(SECP256K1_ENABLE_MODULE_EXTRAKEYS OFF CACHE BOOL "" FORCE)
-    set(SECP256K1_ENABLE_MODULE_SCHNORRSIG OFF CACHE BOOL "" FORCE)
-    set(SECP256K1_ENABLE_MODULE_MUSIG OFF CACHE BOOL "" FORCE)
-    set(SECP256K1_ENABLE_MODULE_ELLSWIFT OFF CACHE BOOL "" FORCE)
-    set(SECP256K1_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
-    set(SECP256K1_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(SECP256K1_BUILD_EXHAUSTIVE_TESTS OFF CACHE BOOL "" FORCE)
-    set(SECP256K1_BUILD_CTIME_TESTS OFF CACHE BOOL "" FORCE)
-    set(SECP256K1_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(SECP256K1_INSTALL ON CACHE BOOL "" FORCE)
-    if(PREDICTFUN_SECP256K1_SOURCE_DIR)
-        FetchContent_Declare(secp256k1
-            SOURCE_DIR "${PREDICTFUN_SECP256K1_SOURCE_DIR}"
-            EXCLUDE_FROM_ALL
-        )
-    else()
-        FetchContent_Declare(
-            secp256k1
-            URL https://github.com/bitcoin-core/secp256k1/archive/refs/tags/v0.7.1.tar.gz
-            URL_HASH SHA256=958F204DBAFC117E73A2604285DC2EB2A5128344D3499C114DCBA5DE54CB7A9E
-            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-            EXCLUDE_FROM_ALL
-        )
-    endif()
-    FetchContent_MakeAvailable(secp256k1)
+if(PREDICTFUN_IZAN_CRYPTO_SOURCE_DIR)
+    FetchContent_Declare(izan_crypto_dependency
+        SOURCE_DIR "${PREDICTFUN_IZAN_CRYPTO_SOURCE_DIR}"
+        EXCLUDE_FROM_ALL
+    )
+else()
+    FetchContent_Declare(izan_crypto_dependency
+        URL https://github.com/izandotai/izan-crypto/archive/8c6857d911da89a229e6a9911e984601e7cf15fa.tar.gz
+        URL_HASH SHA256=E70B9BA33D93D98D052A73F88E3A56F340234E3BC8B3B91BE2E5D676DE682149
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        EXCLUDE_FROM_ALL
+    )
 endif()
+FetchContent_MakeAvailable(izan_crypto_dependency)
 
 # Boost's CMake targets are used only to resolve and validate the pinned source
 # tree.  Keep concrete include directories in the build interface so our
@@ -310,7 +295,7 @@ foreach(PREDICTFUN_BOOST_INCLUDE_DIR IN LISTS PREDICTFUN_BOOST_BUILD_INCLUDE_DIR
 endforeach()
 target_link_libraries(predictfun_order
     PUBLIC predictfun::types
-    PRIVATE OpenSSL::Crypto
+    PRIVATE $<BUILD_INTERFACE:izan::eip712>
 )
 predictfun_enable_warnings(predictfun_order)
 
@@ -347,10 +332,7 @@ if(PREDICTFUN_BUILD_LOCAL_SIGNER)
     )
     target_link_libraries(predictfun_local_signer
         PUBLIC predictfun::order
-        # Embed the audited C objects in this archive. Installed consumers do
-        # not need a hidden signing dependency and read-only targets remain
-        # unaffected.
-        PRIVATE $<BUILD_INTERFACE:secp256k1_objs>
+        PRIVATE $<BUILD_INTERFACE:izan::secp256k1>
     )
     predictfun_enable_warnings(predictfun_local_signer)
 

@@ -69,6 +69,15 @@ int main() {
             malformed.error().message.find("bad") == std::string::npos,
         "invalid key diagnostics never include secret material");
 
+  auto zero = predictfun::order::LocalSigner::create(
+      SecretString{"0000000000000000000000000000000000000000000000000000000000000000"});
+  check(!zero && zero.error().field == "private_key",
+        "zero secp256k1 scalar is rejected");
+  auto overflow = predictfun::order::LocalSigner::create(
+      SecretString{"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"});
+  check(!overflow && overflow.error().field == "private_key",
+        "out-of-range secp256k1 scalar is rejected");
+
   if (failures != 0)
     return 1;
   std::cout << "local signer vectors passed\n";

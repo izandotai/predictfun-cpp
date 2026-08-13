@@ -1,39 +1,27 @@
 #include "predictfun/order/eip712.hpp"
 
-#include <boost/multiprecision/cpp_int.hpp>
-#include <openssl/evp.h>
+#include "core/crypto/eip712.hpp"
+#include "core/units/u256.hpp"
 
 #include <algorithm>
 #include <array>
-#include <memory>
+#include <exception>
 #include <vector>
 
 namespace predictfun::order {
 namespace {
 
-using boost::multiprecision::cpp_int;
 using Word = std::array<std::uint8_t, 32>;
 
-constexpr std::string_view domain_type =
-    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)";
 constexpr std::string_view order_type =
     "Order(uint256 salt,address maker,address signer,address taker,uint256 tokenId,uint256 makerAmount,uint256 takerAmount,uint256 expiration,uint256 nonce,uint256 feeRateBps,uint8 side,uint8 signatureType)";
 
 Result<Word> word(const Uint256 &value) {
-  cpp_int parsed = 0;
-  for (const auto ch : value.to_string()) {
-    parsed *= 10;
-    parsed += static_cast<unsigned int>(ch - '0');
-  }
-  Word result{};
-  for (std::size_t index = 0; index < result.size(); ++index) {
-    result[result.size() - 1U - index] =
-        static_cast<std::uint8_t>((parsed & 0xff).convert_to<unsigned int>());
-    parsed >>= 8;
-  }
-  if (parsed != 0)
+  try {
+    return izan::units::U256::from_dec(value.to_string()).be;
+  } catch (const std::exception &) {
     return Error{ErrorCode::numeric_overflow, "uint256 exceeds 32 bytes", {}};
-  return result;
+  }
 }
 
 Word word(std::uint64_t value) {
@@ -72,28 +60,11 @@ Result<Hash32> hash_words(std::initializer_list<Word> words) {
 } // namespace
 
 Result<Hash32> keccak256(std::span<const std::uint8_t> bytes) {
-  using MdPtr = std::unique_ptr<EVP_MD, decltype(&EVP_MD_free)>;
-  using CtxPtr = std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)>;
-  MdPtr md{EVP_MD_fetch(nullptr, "KECCAK-256", nullptr), EVP_MD_free};
-  CtxPtr ctx{EVP_MD_CTX_new(), EVP_MD_CTX_free};
-  if (!md || !ctx || EVP_DigestInit_ex(ctx.get(), md.get(), nullptr) != 1 ||
-      EVP_DigestUpdate(ctx.get(), bytes.data(), bytes.size()) != 1) {
-    return Error{ErrorCode::protocol_error,
-                 "OpenSSL KECCAK-256 initialization failed", {}};
-  }
-  Hash32 result{};
-  unsigned int length = 0;
-  if (EVP_DigestFinal_ex(ctx.get(), result.data(), &length) != 1 ||
-      length != result.size()) {
-    return Error{ErrorCode::protocol_error,
-                 "OpenSSL KECCAK-256 finalization failed", {}};
-  }
-  return result;
+  return izan::crypto::eip712::keccak256(bytes);
 }
 
 Result<Hash32> keccak256(std::string_view text) {
-  return keccak256(std::span<const std::uint8_t>{
-      reinterpret_cast<const std::uint8_t *>(text.data()), text.size()});
+  return izan::crypto::eip712::keccak256(text);
 }
 
 std::string to_hex(const Hash32 &hash) {
@@ -132,15 +103,12 @@ Result<Hash32> order_struct_hash(const UnsignedOrder &order) {
 
 Result<Hash32> domain_separator(ChainId chain_id,
                                 const EvmAddress &verifying_contract) {
-  auto type_hash = keccak256(domain_type);
-  auto name_hash = keccak256(protocol_name);
-  auto version_hash = keccak256(protocol_version);
-  if (!type_hash || !name_hash || !version_hash)
-    return Error{ErrorCode::protocol_error, "cannot hash EIP-712 domain", {}};
-  return hash_words({as_word(type_hash.value()), as_word(name_hash.value()),
-                     as_word(version_hash.value()),
-                     word(static_cast<std::uint64_t>(chain_id)),
-                     word(verifying_contract)});
+  izan::crypto::eip712::EthAddress contract{};
+  std::copy(verifying_contract.bytes().begin(),
+            verifying_contract.bytes().end(), contract.begin());
+  return izan::crypto::eip712::domain_separator(
+      protocol_name, protocol_version, static_cast<std::uint64_t>(chain_id),
+      contract);
 }
 
 Result<Hash32> typed_data_digest(const UnsignedOrder &order, ChainId chain_id,
@@ -151,13 +119,7 @@ Result<Hash32> typed_data_digest(const UnsignedOrder &order, ChainId chain_id,
     return domain.error();
   if (!structure)
     return structure.error();
-  std::array<std::uint8_t, 66> bytes{};
-  bytes[0] = 0x19;
-  bytes[1] = 0x01;
-  std::copy(domain.value().begin(), domain.value().end(), bytes.begin() + 2);
-  std::copy(structure.value().begin(), structure.value().end(),
-            bytes.begin() + 34);
-  return keccak256(bytes);
+  return izan::crypto::eip712::typed_digest(domain.value(), structure.value());
 }
 
 } // namespace predictfun::order

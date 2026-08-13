@@ -1,6 +1,6 @@
 # predictfun-cpp development progress
 
-Updated: 2026-08-12
+Updated: 2026-08-13
 
 ## Current status
 
@@ -49,8 +49,15 @@ P4 provenance and constraints:
   `5ff2b4a1c54cbbeb0fd661e17246cd12a9af8486`.
 - Mainnet/testnet domain and order hashes were generated independently with
   `ethers`, then frozen as C++ golden vectors.
-- The local signer pins Bitcoin Core `libsecp256k1` v0.7.1 by SHA-256 and is a
-  separate CMake target. Public/read-only consumers do not link signing code.
+- EIP-712, Keccak, U256 ABI words and recoverable secp256k1 signing share the
+  audited `izan-crypto` boundary pinned at immutable commit
+  `8c6857d911da89a229e6a9911e984601e7cf15fa` and archive SHA-256
+  `E70B9BA33D93D98D052A73F88E3A56F340234E3BC8B3B91BE2E5D676DE682149`.
+  Predict-specific order schemas remain in this SDK; generic cryptography is
+  not duplicated here.
+- The local signer is still a separate CMake target. Its raw scalar lives in
+  libsodium guarded memory, is protected while idle and is wiped on
+  destruction. Public/read-only consumers do not link signing code.
 - The signer accepts only an explicit move-only in-memory secret. It does not
   read `.env`, files or process environment variables.
 - Market order construction is intentionally stricter than the official
@@ -115,10 +122,16 @@ P7 durable recovery is implemented without integrating PMT:
   post-cancellation responses cannot complete a public REST operation twice.
 - [x] Manually triggered CI job configured to run the full matrix under
   ASan/UBSan and a deterministic libFuzzer smoke run.
-- [ ] Installed-package consumer matrix.
+- [x] Installed-package consumer matrix for public/read-only and explicit
+  local-signer consumers.
 - [ ] Explicitly gated testnet operation harness.
 
 Current deterministic matrix: 27 Debug/Release tests.
+
+Release verification also rebuilds from the pinned `izan-crypto` archive,
+not a mutable checkout. A read-only build emits neither
+`predictfun_local_signer` nor `izan_secp256k1`, while an installed-package
+consumer must opt into the signer target explicitly.
 
 Next: add an explicitly gated BNB testnet operation harness and evidence
 format, without embedding credentials or silently performing a mutation.
