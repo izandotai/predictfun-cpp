@@ -22,6 +22,8 @@ struct Category {
   std::optional<std::string> created_at;
   std::optional<std::string> published_at;
   std::optional<std::string> market_variant;
+  // Required by negative-risk convertPositions; absent on standard categories.
+  std::optional<std::string> neg_risk_on_chain_id;
   std::optional<CryptoUpDownVariantData> crypto_up_down;
   bool is_neg_risk{false};
   bool is_yield_bearing{false};

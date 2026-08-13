@@ -688,6 +688,29 @@ void ChainClient::async_erc20_balance(EvmAddress token, EvmAddress owner,
              });
 }
 
+void ChainClient::async_erc20_decimals(EvmAddress token,
+                                       net::RequestContext context,
+                                       Handler<std::uint8_t> handler) {
+  auto data = abi::erc20_decimals();
+  if (!data) return handler(data.error());
+  async_call(CallRequest{token, std::move(data.value()), std::nullopt},
+             BlockTag::latest, std::move(context),
+             [handler = std::move(handler)](Result<std::string> value) mutable {
+               if (!value) return handler(value.error());
+               auto decoded = abi::decode_word_uint256(value.value());
+               if (!decoded) return handler(decoded.error());
+               const auto &text = decoded.value().to_string();
+               if (text.size() > 3U)
+                 return handler(Error{ErrorCode::numeric_overflow,
+                                      "ERC-20 decimals exceeds uint8", text});
+               const auto number = std::stoul(text);
+               if (number > 255U)
+                 return handler(Error{ErrorCode::numeric_overflow,
+                                      "ERC-20 decimals exceeds uint8", text});
+               handler(static_cast<std::uint8_t>(number));
+             });
+}
+
 void ChainClient::async_erc20_allowance(EvmAddress token, EvmAddress owner,
                                         EvmAddress spender,
                                         net::RequestContext context,

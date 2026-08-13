@@ -67,6 +67,10 @@ struct Market {
   MarketId id;
   std::string title;
   std::string question;
+  // Chain identifiers are optional because future/unregistered market windows
+  // may be published before their contracts are finalized.
+  std::optional<std::string> condition_id;
+  std::optional<std::uint64_t> question_index;
   EnumValue<TradingStatus> trading_status;
   EnumValue<MarketStatus> status;
   std::uint8_t decimal_precision{0};

@@ -94,11 +94,21 @@ reconciliation, receipt waiting and EOA/Predict Account routing pass the local
 Debug suite. Live testnet receipt and post-balance evidence remains in the
 caller-authorized final release matrix.
 
-The P7 acceptance harness now provides a BNB-testnet-only, default-read-only
-probe plus an exact owner/scope-gated approval runner and append-only evidence
-schema. It accepts secrets only from an interactive hidden prompt, records
+The P7 acceptance harness now provides BNB-testnet-only, default-read-only
+approval and position-operation probes plus exact owner/scope/operation-gated
+approval and split/merge/redeem/convert runners. Position probes bind public
+condition/category identifiers, exact amounts and token-balance evidence into
+the confirmation phrase and require a successful `eth_call` before any write.
+The harness accepts secrets only from an interactive hidden prompt, records
 receipts and before/after balances/approvals, and never blind-retries an
 ambiguous submission. Actual funded testnet evidence remains caller-authorized.
+
+The acceptance wallet and its DPAPI-protected keystore are deliberately kept
+outside the repository. A live read-only probe has validated BNB testnet chain
+id 97 and read the registered collateral's balance and 18-decimal precision
+directly from chain. Funded mutations remain pending because the official tBNB
+channels require an interactive human faucet request; no unofficial faucet or
+embedded credential was introduced to bypass that boundary.
 
 ### P7: production hardening and release
 

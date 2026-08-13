@@ -37,6 +37,7 @@ encode_call_with_bytes(
     std::span<const std::uint8_t> value);
 
 [[nodiscard]] Result<std::string> erc20_balance_of(const EvmAddress &owner);
+[[nodiscard]] Result<std::string> erc20_decimals();
 [[nodiscard]] Result<std::string> erc20_allowance(const EvmAddress &owner,
                                                  const EvmAddress &spender);
 [[nodiscard]] Result<std::string> erc20_approve(const EvmAddress &spender,

@@ -41,6 +41,8 @@ struct WireMarket {
   std::optional<std::uint64_t> id;
   std::optional<std::string> title;
   std::optional<std::string> question;
+  std::optional<std::string> conditionId;
+  std::optional<std::uint64_t> questionIndex;
   std::optional<std::string> tradingStatus;
   std::optional<std::string> status;
   std::optional<std::uint32_t> decimalPrecision;
@@ -76,6 +78,7 @@ struct WireCategory {
   std::optional<std::string> createdAt;
   std::optional<std::string> publishedAt;
   std::optional<std::string> marketVariant;
+  std::optional<std::string> negRiskOnChainId;
   std::optional<WireVariantData> variantData;
   std::optional<bool> isNegRisk;
   std::optional<bool> isYieldBearing;
@@ -504,6 +507,8 @@ Result<Market> convert_market(const WireMarket &wire,
   }
   if (!string_within_limit(*wire.title, limits) ||
       !string_within_limit(*wire.question, limits) ||
+      (wire.conditionId &&
+       !string_within_limit(*wire.conditionId, limits)) ||
       !string_within_limit(*wire.tradingStatus, limits) ||
       !string_within_limit(*wire.status, limits)) {
     return invalid("market string exceeds configured limit", "data[]");
@@ -513,6 +518,8 @@ Result<Market> convert_market(const WireMarket &wire,
   market.id = MarketId{*wire.id};
   market.title = *wire.title;
   market.question = *wire.question;
+  market.condition_id = wire.conditionId;
+  market.question_index = wire.questionIndex;
   market.trading_status = parse_trading_status(*wire.tradingStatus);
   market.status = parse_market_status(*wire.status);
   market.decimal_precision = static_cast<std::uint8_t>(*wire.decimalPrecision);
@@ -568,7 +575,9 @@ Result<Category> convert_category(const WireCategory &wire,
       (!wire.createdAt || string_within_limit(*wire.createdAt, limits)) &&
       (!wire.publishedAt || string_within_limit(*wire.publishedAt, limits)) &&
       (!wire.marketVariant ||
-       string_within_limit(*wire.marketVariant, limits));
+       string_within_limit(*wire.marketVariant, limits)) &&
+      (!wire.negRiskOnChainId ||
+       string_within_limit(*wire.negRiskOnChainId, limits));
   if (!strings_valid)
     return invalid("category string exceeds configured limit", "data[]");
 
@@ -583,6 +592,7 @@ Result<Category> convert_category(const WireCategory &wire,
   category.created_at = wire.createdAt;
   category.published_at = wire.publishedAt;
   category.market_variant = wire.marketVariant;
+  category.neg_risk_on_chain_id = wire.negRiskOnChainId;
   auto category_variant =
       convert_crypto_variant(wire.variantData, limits, "data[].variantData");
   if (!category_variant)

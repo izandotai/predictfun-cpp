@@ -74,6 +74,10 @@ void test_markets_fixture() {
   CHECK(page.markets.size() == 1U);
   const auto &market = page.markets.front();
   CHECK(market.id.value == 424242U);
+  CHECK(market.condition_id &&
+        *market.condition_id ==
+            "0x1111111111111111111111111111111111111111111111111111111111111111");
+  CHECK(market.question_index && *market.question_index == 7U);
   CHECK(market.trading_status.value == predictfun::TradingStatus::open);
   CHECK(market.status.value == predictfun::MarketStatus::registered);
   CHECK(market.decimal_precision == 2U);
@@ -101,6 +105,9 @@ void test_crypto_category_fixture() {
         *category.ends_at == "2026-08-13T07:05:00.000Z");
   CHECK(category.market_variant &&
         *category.market_variant == "CRYPTO_UP_DOWN");
+  CHECK(category.neg_risk_on_chain_id &&
+        *category.neg_risk_on_chain_id ==
+            "0x2222222222222222222222222222222222222222222222222222222222222222");
   CHECK(category.crypto_up_down.has_value());
   CHECK(category.crypto_up_down->price_feed_symbol &&
         *category.crypto_up_down->price_feed_symbol == "BTCUSDT");
@@ -110,6 +117,10 @@ void test_crypto_category_fixture() {
   CHECK(category.markets.size() == 1U);
   const auto &market = category.markets.front();
   CHECK(market.category_slug && *market.category_slug == category.slug);
+  CHECK(market.condition_id &&
+        *market.condition_id ==
+            "0x3333333333333333333333333333333333333333333333333333333333333333");
+  CHECK(market.question_index && *market.question_index == 11U);
   CHECK(market.market_variant &&
         *market.market_variant == "CRYPTO_UP_DOWN");
   CHECK(market.crypto_up_down && market.crypto_up_down->price_feed_id &&

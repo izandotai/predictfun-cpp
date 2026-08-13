@@ -13,6 +13,7 @@
       "createdAt": "2026-08-12T07:00:01.000Z",
       "publishedAt": "2026-08-12T07:00:02.000Z",
       "marketVariant": "CRYPTO_UP_DOWN",
+      "negRiskOnChainId": "0x2222222222222222222222222222222222222222222222222222222222222222",
       "variantData": {
         "type": "CRYPTO_UP_DOWN",
         "priceFeedProvider": "CHAINLINK",
@@ -30,6 +31,8 @@
           "id": 1345674,
           "title": "Bitcoin Up or Down - sanitized window",
           "question": "Bitcoin Up or Down - sanitized window",
+          "conditionId": "0x3333333333333333333333333333333333333333333333333333333333333333",
+          "questionIndex": 11,
           "tradingStatus": "OPEN",
           "status": "REGISTERED",
           "decimalPrecision": 2,

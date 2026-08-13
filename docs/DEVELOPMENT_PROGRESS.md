@@ -127,6 +127,11 @@ P7 durable recovery is implemented without integrating PMT:
 - [x] Explicitly gated testnet scoped-approval harness with a default read-only
   probe, exact owner/scope confirmation, interactive secret input and
   append-only receipt/balance/approval evidence.
+- [x] Decode public operation metadata (`conditionId`, `questionIndex` and
+  `negRiskOnChainId`) without exposing wire-only types.
+- [x] Extend the gated harness over split, merge, redeem and convert with exact
+  operation-bound confirmation, balance/token evidence, mandatory `eth_call`
+  preflight and a one-submission/no-blind-retry execution path.
 - [ ] Capture caller-authorized BNB testnet receipts and post-operation balance
   transitions for split, merge, convert and redeem.
 
@@ -137,6 +142,16 @@ not a mutable checkout. A read-only build emits neither
 `predictfun_local_signer` nor `izan_secp256k1`, while an installed-package
 consumer must opt into the signer target explicitly.
 
-Next: use the now-gated harness to capture caller-authorized testnet evidence,
-then extend the same evidence envelope over split, merge, convert and redeem
-acceptance scenarios without changing the SDK's authority boundary.
+An isolated BNB-testnet-only acceptance wallet now exists outside the source
+tree in a Windows DPAPI-protected keystore. The final Debug executable has
+successfully captured a live read-only chain-97 preflight: registered
+collateral and its on-chain 18-decimal precision were read, the zero balance
+was preserved, and the missing minimal trade-buy allowance was identified.
+No key material or acceptance evidence is stored in this repository.
+
+Next: fund that isolated address with tBNB through an official BNB Chain
+channel (the public faucet currently requires either mainnet BNB and a human
+challenge, or an interactive Discord/Telegram request), allocate the deployed
+test collateral, then capture funded split/merge/convert/redeem receipts and
+post-operation balance transitions without changing the SDK's authority
+boundary.

@@ -5,6 +5,8 @@
       "id": 424242,
       "title": "Example binary market",
       "question": "Will the example condition be true?",
+      "conditionId": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "questionIndex": 7,
       "tradingStatus": "OPEN",
       "status": "REGISTERED",
       "decimalPrecision": 2,

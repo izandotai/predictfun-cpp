@@ -224,6 +224,10 @@ Result<std::string> erc20_balance_of(const EvmAddress &owner) {
   return encode_call("balanceOf(address)", words);
 }
 
+Result<std::string> erc20_decimals() {
+  return encode_call("decimals()", {});
+}
+
 Result<std::string> erc20_allowance(const EvmAddress &owner,
                                     const EvmAddress &spender) {
   const std::array words{word(owner), word(spender)};

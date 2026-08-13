@@ -62,6 +62,8 @@ public:
 
   void async_erc20_balance(EvmAddress token, EvmAddress owner,
                            net::RequestContext context, Handler<Uint256> handler);
+  void async_erc20_decimals(EvmAddress token, net::RequestContext context,
+                            Handler<std::uint8_t> handler);
   void async_erc20_allowance(EvmAddress token, EvmAddress owner,
                              EvmAddress spender, net::RequestContext context,
                              Handler<Uint256> handler);

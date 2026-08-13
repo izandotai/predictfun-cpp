@@ -19,6 +19,11 @@ endforeach()
 foreach(REQUIRED
     "ChainId::bnb_testnet"
     "validate_testnet_write_gate"
+    "validate_testnet_position_write_gate"
+    "position-probe"
+    "position-execute"
+    "async_erc20_decimals"
+    "eth_call preflight"
     "--execute"
     "--confirm"
     "--evidence"

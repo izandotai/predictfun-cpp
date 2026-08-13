@@ -86,9 +86,11 @@ void test_abi() {
   const auto owner = address("0x1111111111111111111111111111111111111111");
   const auto spender = address("0x2222222222222222222222222222222222222222");
   const auto balance = erc20_balance_of(owner);
+  const auto decimals = erc20_decimals();
   const auto allowance = erc20_allowance(owner, spender);
   const auto approved = erc1155_is_approved_for_all(owner, spender);
   CHECK(balance && balance.value().starts_with("0x70a08231"));
+  CHECK(decimals && decimals.value() == "0x313ce567");
   CHECK(allowance && allowance.value().starts_with("0xdd62ed3e"));
   CHECK(approved && approved.value().starts_with("0xe985e9c5"));
   CHECK(decode_quantity("0x38").value().to_string() == "56");
@@ -267,6 +269,28 @@ void test_chain_client() {
   CHECK(transport->requests[0].body.find("eth_chainId") != std::string::npos);
   CHECK(transport->requests[1].body.find("eth_call") != std::string::npos);
   CHECK(transport->requests[1].body.find("70a08231") != std::string::npos);
+}
+
+void test_chain_client_erc20_decimals() {
+  boost::asio::io_context io;
+  auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
+  transport->push(response(R"({"jsonrpc":"2.0","id":1,"result":"0x61"})"));
+  transport->push(response(R"({"jsonrpc":"2.0","id":2,"result":"0x0000000000000000000000000000000000000000000000000000000000000012"})"));
+  predictfun::chain::ClientOptions options;
+  options.endpoint = predictfun::RpcEndpoint{"rpc.example", "443", "/", true};
+  predictfun::chain::ChainClient client(io.get_executor(), transport, options);
+  bool called = false;
+  client.async_erc20_decimals(
+      address("0x3333333333333333333333333333333333333333"),
+      predictfun::net::RequestContext::with_timeout(std::chrono::seconds{1}),
+      [&](Result<std::uint8_t> result) {
+        called = true;
+        CHECK(result && result.value() == 18U);
+      });
+  io.run();
+  CHECK(called);
+  CHECK(transport->requests.size() == 2U);
+  CHECK(transport->requests[1].body.find("313ce567") != std::string::npos);
 }
 
 void test_wrong_chain() {
@@ -488,6 +512,7 @@ int main() {
   test_cancel_operations();
   test_legacy_transaction_vector();
   test_chain_client();
+  test_chain_client_erc20_decimals();
   test_wrong_chain();
   test_transaction_execution_client();
   test_approval_checks_and_run();
