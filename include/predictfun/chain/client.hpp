@@ -34,6 +34,9 @@ public:
   ChainClient &operator=(ChainClient &&) noexcept;
 
   void async_chain_id(net::RequestContext context, Handler<ChainId> handler);
+  void async_native_balance(EvmAddress owner, BlockTag block,
+                            net::RequestContext context,
+                            Handler<Uint256> handler);
   void async_call(CallRequest request, BlockTag block,
                   net::RequestContext context, Handler<std::string> handler);
   void async_transaction_receipt(std::string transaction_hash,

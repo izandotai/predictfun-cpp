@@ -43,10 +43,11 @@ Use an EOA address that you control on BNB testnet:
   --evidence runtime/predict-testnet-probe.jsonl
 ```
 
-The probe validates remote chain id `97`, reads the registered testnet
-collateral balance, and checks every step in the selected scope. It sends no
-transaction and prints the exact confirmation phrase required for a later
-write.
+The probe validates remote chain id `97`, reads both the native BNB gas balance
+and the registered testnet collateral balance, and checks every step in the
+selected scope. The two assets are reported separately so funded gas can never
+be mistaken for spendable Predict collateral. It sends no transaction and
+prints the exact confirmation phrase required for a later write.
 
 Supported scopes:
 
@@ -152,7 +153,8 @@ timestamped in Unix milliseconds and include:
 
 - session mode, owner, scope and chain id;
 - chain validation;
-- before/after registered-collateral balance in exact base units;
+- before/after native BNB gas balance in wei and registered-collateral balance
+  in exact base units;
 - before/after approval state, token, spender and allowance;
 - explicit write authorization;
 - approval progress;

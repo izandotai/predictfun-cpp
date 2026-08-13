@@ -149,9 +149,15 @@ collateral and its on-chain 18-decimal precision were read, the zero balance
 was preserved, and the missing minimal trade-buy allowance was identified.
 No key material or acceptance evidence is stored in this repository.
 
-Next: fund that isolated address with tBNB through an official BNB Chain
-channel (the public faucet currently requires either mainnet BNB and a human
-challenge, or an interactive Discord/Telegram request), allocate the deployed
-test collateral, then capture funded split/merge/convert/redeem receipts and
-post-operation balance transitions without changing the SDK's authority
-boundary.
+The acceptance snapshots now report native BNB in wei separately from the
+registered Predict test collateral. This prevents a funded gas wallet from
+being misdiagnosed as a funded trading wallet and applies to both approval and
+position-operation probes. A fresh read-only BNB testnet probe verified
+`300000000000000000` wei of native gas while the registered collateral remains
+zero; the remaining acceptance dependency is obtaining test collateral, not
+gas funding.
+
+Next: obtain the deployed Predict test collateral for the isolated address,
+then capture funded split/merge/convert/redeem receipts and post-operation
+balance transitions without changing the SDK's authority boundary. Native BNB
+gas is already funded and independently verified.

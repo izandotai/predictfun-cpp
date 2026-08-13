@@ -49,12 +49,14 @@ using predictfun::tools::TestnetPositionOperation;
 using predictfun::tools::TestnetPositionPlan;
 
 struct Snapshot {
+  Uint256 native_balance;
   Uint256 collateral_balance;
   std::uint8_t collateral_decimals{0};
   std::vector<ApprovalCheck> approvals;
 };
 
 struct PositionSnapshot {
+  Uint256 native_balance;
   Uint256 collateral_balance;
   std::uint8_t collateral_decimals{0};
   std::vector<Uint256> token_balances;
@@ -264,13 +266,25 @@ void read_snapshot(ChainClient &client, const TestnetAcceptanceOptions &options,
                   owner, steps,
                   predictfun::net::RequestContext::with_timeout(
                       std::chrono::seconds{15}),
-                  [balance = std::move(balance.value()), decimals,
+                  [&client, owner, balance = std::move(balance.value()), decimals,
                    handler = std::move(handler)](
                       Result<std::vector<ApprovalCheck>> approvals) mutable {
                     if (!approvals)
                       return handler(approvals.error());
-                    handler(Snapshot{std::move(balance), decimals,
-                                     std::move(approvals.value())});
+                    client.async_native_balance(
+                        owner, predictfun::BlockTag::latest,
+                        predictfun::net::RequestContext::with_timeout(
+                            std::chrono::seconds{15}),
+                        [balance = std::move(balance), decimals,
+                         approvals = std::move(approvals.value()),
+                         handler = std::move(handler)](
+                            Result<Uint256> native_balance) mutable {
+                          if (!native_balance)
+                            return handler(native_balance.error());
+                          handler(Snapshot{std::move(native_balance.value()),
+                                           std::move(balance), decimals,
+                                           std::move(approvals)});
+                        });
                   });
             });
       });
@@ -278,6 +292,14 @@ void read_snapshot(ChainClient &client, const TestnetAcceptanceOptions &options,
 
 void record_snapshot(EvidenceWriter *evidence, const Snapshot &snapshot,
                      std::string_view phase) {
+  std::cout << phase << " native BNB wei: "
+            << snapshot.native_balance.to_string() << '\n';
+  if (evidence)
+    evidence->write(
+        "balance_snapshot",
+        "\"phase\":\"" + std::string{phase} +
+            "\",\"asset\":\"native_bnb\",\"balance_wei\":\"" +
+            snapshot.native_balance.to_string() + '"');
   std::cout << phase << " collateral base units: "
             << snapshot.collateral_balance.to_string() << " (decimals="
             << static_cast<unsigned>(snapshot.collateral_decimals) << ")\n";
@@ -386,13 +408,24 @@ void read_position_snapshot(ChainClient &client,
                       owner, steps,
                       predictfun::net::RequestContext::with_timeout(
                           std::chrono::seconds{15}),
-                      [state, handler = std::move(handler)](
+                      [&client, owner, state, handler = std::move(handler)](
                           Result<std::vector<ApprovalCheck>>
                               approvals) mutable {
                         if (!approvals)
                           return handler(approvals.error());
                         state->approvals = std::move(approvals.value());
-                        handler(std::move(*state));
+                        client.async_native_balance(
+                            owner, predictfun::BlockTag::latest,
+                            predictfun::net::RequestContext::with_timeout(
+                                std::chrono::seconds{15}),
+                            [state, handler = std::move(handler)](
+                                Result<Uint256> native_balance) mutable {
+                              if (!native_balance)
+                                return handler(native_balance.error());
+                              state->native_balance =
+                                  std::move(native_balance.value());
+                              handler(std::move(*state));
+                            });
                       });
                   return;
                 }
@@ -417,6 +450,14 @@ void record_position_snapshot(EvidenceWriter *evidence,
                               const TestnetPositionPlan &plan,
                               const PositionSnapshot &snapshot,
                               std::string_view phase) {
+  std::cout << phase << " native BNB wei: "
+            << snapshot.native_balance.to_string() << '\n';
+  if (evidence)
+    evidence->write(
+        "balance_snapshot",
+        "\"phase\":\"" + std::string{phase} +
+            "\",\"asset\":\"native_bnb\",\"balance_wei\":\"" +
+            snapshot.native_balance.to_string() + '"');
   std::cout << phase << " collateral base units: "
             << snapshot.collateral_balance.to_string() << " (decimals="
             << static_cast<unsigned>(snapshot.collateral_decimals) << ")\n";

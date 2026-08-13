@@ -271,6 +271,31 @@ void test_chain_client() {
   CHECK(transport->requests[1].body.find("70a08231") != std::string::npos);
 }
 
+void test_chain_client_native_balance() {
+  boost::asio::io_context io;
+  auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
+  transport->push(response(R"({"jsonrpc":"2.0","id":1,"result":"0x61"})"));
+  transport->push(response(
+      R"({"jsonrpc":"2.0","id":2,"result":"0x71afd498d0000"})"));
+  predictfun::chain::ClientOptions options;
+  options.endpoint = predictfun::RpcEndpoint{"rpc.example", "443", "/", true};
+  predictfun::chain::ChainClient client(io.get_executor(), transport, options);
+  bool called = false;
+  client.async_native_balance(
+      address("0x1111111111111111111111111111111111111111"),
+      predictfun::BlockTag::latest,
+      predictfun::net::RequestContext::with_timeout(std::chrono::seconds{1}),
+      [&](Result<predictfun::Uint256> result) {
+        called = true;
+        CHECK(result && result.value().to_string() == "2000000000000000");
+      });
+  io.run();
+  CHECK(called);
+  CHECK(transport->requests.size() == 2U);
+  CHECK(transport->requests[1].body.find("eth_getBalance") !=
+        std::string::npos);
+}
+
 void test_chain_client_erc20_decimals() {
   boost::asio::io_context io;
   auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
@@ -512,6 +537,7 @@ int main() {
   test_cancel_operations();
   test_legacy_transaction_vector();
   test_chain_client();
+  test_chain_client_native_balance();
   test_chain_client_erc20_decimals();
   test_wrong_chain();
   test_transaction_execution_client();

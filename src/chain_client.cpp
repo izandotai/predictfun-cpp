@@ -592,6 +592,19 @@ void ChainClient::async_chain_id(net::RequestContext context,
   impl_->raw_chain_id(std::move(context), std::move(handler));
 }
 
+void ChainClient::async_native_balance(EvmAddress owner, BlockTag block,
+                                       net::RequestContext context,
+                                       Handler<Uint256> handler) {
+  impl_->string_method(
+      "eth_getBalance",
+      std::format(R"(["{}","{}"])", owner.to_string(), block_tag(block)),
+      std::move(context),
+      [handler = std::move(handler)](Result<std::string> value) mutable {
+        if (!value) return handler(value.error());
+        handler(abi::decode_quantity(value.value()));
+      });
+}
+
 void ChainClient::async_call(CallRequest call, BlockTag block,
                              net::RequestContext context,
                              Handler<std::string> handler) {
