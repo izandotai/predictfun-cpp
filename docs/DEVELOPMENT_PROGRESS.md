@@ -2,6 +2,19 @@
 
 Updated: 2026-08-13
 
+## 2026-08-13 — P7 live testnet readiness gate
+
+- Revalidated BNB testnet chain id 97, 0.3 tBNB native gas, registered
+  collateral precision/balance, scoped approvals, open markets, orderbook and
+  categories through live read-only probes.
+- Audited the official Predict developer documentation plus the TypeScript and
+  Python SDKs. They publish no supported test-collateral faucet or mint API.
+- Added a deterministic acceptance readiness report that separates native gas,
+  registered collateral and scoped approvals, persists the result in evidence,
+  and identifies the next safe action without attempting a transaction.
+- Status: gas and public data are READY; funded position operations are BLOCKED
+  only by zero registered test collateral. No unofficial mutation path is used.
+
 ## Current status
 
 | Milestone | State | Evidence |

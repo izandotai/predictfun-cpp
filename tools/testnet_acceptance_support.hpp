@@ -45,6 +45,25 @@ struct TestnetAcceptanceOptions {
   bool help{false};
 };
 
+struct TestnetAcceptanceReadiness {
+  bool gas_ready{false};
+  bool collateral_ready{false};
+  std::size_t approval_total{0};
+  std::size_t approval_missing{0};
+
+  [[nodiscard]] bool fully_ready() const noexcept {
+    return gas_ready && collateral_ready && approval_missing == 0U;
+  }
+};
+
+[[nodiscard]] TestnetAcceptanceReadiness
+evaluate_testnet_acceptance_readiness(
+    const Uint256 &native_balance, const Uint256 &collateral_balance,
+    std::span<const ApprovalCheck> approvals);
+
+[[nodiscard]] std::string
+testnet_acceptance_next_action(const TestnetAcceptanceReadiness &readiness);
+
 [[nodiscard]] Result<TestnetAcceptanceOptions>
 parse_testnet_acceptance_arguments(std::span<const std::string_view> arguments);
 

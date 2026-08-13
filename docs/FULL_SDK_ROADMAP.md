@@ -104,11 +104,15 @@ receipts and before/after balances/approvals, and never blind-retries an
 ambiguous submission. Actual funded testnet evidence remains caller-authorized.
 
 The acceptance wallet and its DPAPI-protected keystore are deliberately kept
-outside the repository. A live read-only probe has validated BNB testnet chain
-id 97 and read the registered collateral's balance and 18-decimal precision
-directly from chain. Funded mutations remain pending because the official tBNB
-channels require an interactive human faucet request; no unofficial faucet or
-embedded credential was introduced to bypass that boundary.
+outside the repository. Live read-only probes have validated BNB testnet chain
+id 97, a funded native-BNB gas balance, the registered collateral's zero
+balance and 18-decimal precision, and current market/orderbook/category REST
+reads. The official Predict documentation and TypeScript/Python SDKs expose no
+test-collateral faucet or mint interface. Funded mutations therefore remain
+blocked on collateral obtained through an official Predict channel; no
+unofficial faucet, arbitrary mint call or embedded credential is introduced to
+bypass that boundary. The acceptance probe reports this distinction as a
+machine-readable READY/BLOCKED gate.
 
 ### P7: production hardening and release
 

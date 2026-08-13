@@ -62,6 +62,31 @@ Result<std::string_view> next_value(std::span<const std::string_view> arguments,
 
 } // namespace
 
+TestnetAcceptanceReadiness evaluate_testnet_acceptance_readiness(
+    const Uint256 &native_balance, const Uint256 &collateral_balance,
+    std::span<const ApprovalCheck> approvals) {
+  TestnetAcceptanceReadiness readiness;
+  readiness.gas_ready = !native_balance.is_zero();
+  readiness.collateral_ready = !collateral_balance.is_zero();
+  readiness.approval_total = approvals.size();
+  for (const auto &approval : approvals)
+    if (!approval.satisfied)
+      ++readiness.approval_missing;
+  return readiness;
+}
+
+std::string testnet_acceptance_next_action(
+    const TestnetAcceptanceReadiness &readiness) {
+  if (!readiness.gas_ready)
+    return "fund native BNB testnet gas through an official BNB faucet";
+  if (!readiness.collateral_ready)
+    return "obtain registered Predict BNB-testnet collateral through an "
+           "official Predict channel, then rerun probe";
+  if (readiness.approval_missing != 0U)
+    return "run the exact scoped approval shown by this probe";
+  return "run a read-only position probe for the exact market operation";
+}
+
 Result<TestnetAcceptanceOptions> parse_testnet_acceptance_arguments(
     std::span<const std::string_view> arguments) {
   TestnetAcceptanceOptions options;

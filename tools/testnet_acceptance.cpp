@@ -318,6 +318,43 @@ void record_snapshot(EvidenceWriter *evidence, const Snapshot &snapshot,
   }
 }
 
+void record_readiness(EvidenceWriter *evidence, const Snapshot &snapshot) {
+  const auto readiness =
+      predictfun::tools::evaluate_testnet_acceptance_readiness(
+          snapshot.native_balance, snapshot.collateral_balance,
+          snapshot.approvals);
+  std::cout << "acceptance readiness: "
+            << (readiness.fully_ready() ? "READY" : "BLOCKED") << '\n'
+            << "  gas writes: "
+            << (readiness.gas_ready ? "READY" : "BLOCKED") << '\n'
+            << "  collateral operations: "
+            << (readiness.collateral_ready ? "READY" : "BLOCKED") << '\n'
+            << "  approval scope: "
+            << (readiness.approval_missing == 0U ? "READY"
+                                                 : "ACTION_REQUIRED")
+            << " (" << readiness.approval_missing << '/'
+            << readiness.approval_total << " missing)\n"
+            << "  next: "
+            << predictfun::tools::testnet_acceptance_next_action(readiness)
+            << '\n';
+  if (evidence)
+    evidence->write(
+        "acceptance_readiness",
+        "\"state\":\"" +
+            std::string{readiness.fully_ready() ? "ready" : "blocked"} +
+            "\",\"gas_ready\":" +
+            (readiness.gas_ready ? "true" : "false") +
+            ",\"collateral_ready\":" +
+            (readiness.collateral_ready ? "true" : "false") +
+            ",\"approval_total\":" +
+            std::to_string(readiness.approval_total) +
+            ",\"approval_missing\":" +
+            std::to_string(readiness.approval_missing) + ",\"next\":\"" +
+            json_escape(
+                predictfun::tools::testnet_acceptance_next_action(readiness)) +
+            '"');
+}
+
 Result<UnsignedTransaction>
 position_transaction(const TestnetPositionPlan &plan) {
   switch (*plan.operation) {
@@ -811,6 +848,8 @@ int run(const TestnetAcceptanceOptions &options) {
               }
               record_snapshot(evidence ? &*evidence : nullptr, before.value(),
                               "before");
+              record_readiness(evidence ? &*evidence : nullptr,
+                               before.value());
               std::cout << "confirmation: "
                         << predictfun::tools::testnet_approval_confirmation(
                                options.owner, options.scope)

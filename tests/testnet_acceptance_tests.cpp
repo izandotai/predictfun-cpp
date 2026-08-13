@@ -165,6 +165,42 @@ void test_incomplete_position_plans_fail_closed() {
       too_many_redeem_tokens));
 }
 
+void test_acceptance_readiness_explains_the_next_safe_action() {
+  using predictfun::ApprovalCheck;
+  using predictfun::ApprovalKind;
+  using predictfun::ApprovalStep;
+  using predictfun::EvmAddress;
+  using predictfun::Uint256;
+
+  const auto token =
+      EvmAddress::parse("0x1111111111111111111111111111111111111111")
+          .value();
+  const auto spender =
+      EvmAddress::parse("0x2222222222222222222222222222222222222222")
+          .value();
+  std::vector<ApprovalCheck> approvals{
+      ApprovalCheck{ApprovalStep{"COLLATERAL", ApprovalKind::erc20_allowance,
+                                 spender, token, "Approve", "Approve"},
+                    false, std::nullopt}};
+
+  auto readiness = predictfun::tools::evaluate_testnet_acceptance_readiness(
+      Uint256::parse("300000000000000000").value(), Uint256{}, approvals);
+  CHECK(readiness.gas_ready);
+  CHECK(!readiness.collateral_ready);
+  CHECK(readiness.approval_total == 1U);
+  CHECK(readiness.approval_missing == 1U);
+  CHECK(!readiness.fully_ready());
+  CHECK(predictfun::tools::testnet_acceptance_next_action(readiness).find(
+            "official Predict channel") != std::string::npos);
+
+  approvals.front().satisfied = true;
+  readiness = predictfun::tools::evaluate_testnet_acceptance_readiness(
+      Uint256::parse("1").value(), Uint256::parse("1").value(), approvals);
+  CHECK(readiness.fully_ready());
+  CHECK(predictfun::tools::testnet_acceptance_next_action(readiness).find(
+            "position probe") != std::string::npos);
+}
+
 } // namespace
 
 int main() {
@@ -175,5 +211,6 @@ int main() {
   test_position_probe_is_read_only_and_exact();
   test_position_write_gate_binds_every_operation_field();
   test_incomplete_position_plans_fail_closed();
+  test_acceptance_readiness_explains_the_next_safe_action();
   return failures == 0 ? 0 : 1;
 }
