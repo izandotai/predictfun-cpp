@@ -30,6 +30,23 @@ Updated: 2026-08-13
 
 ## Current status
 
+## 2026-08-13 - persistent BTC liquidity evidence
+
+- Extended the exact analysis boundary with descending-bid market-sell quotes
+  and same-snapshot buy/sell round trips. Partial purchases count only actual
+  collateral spent, never unavailable budget, in book-loss calculations.
+- Added bounded finite or continuous sampling. Every round re-derives the
+  current BTC 5m/15m slug and therefore crosses windows without stale reuse.
+- Upgraded the public evidence schema to `predictfun.btc_liquidity.v2` with
+  exact window phase, buy/exit completeness, recovered collateral and
+  book-only loss.
+- Added a credential-free report grouped by 5m/15m, normalized Q1-Q4 window
+  phase, UP/DOWN and $10/$25/$50 budget.
+- Preserved fee-rate metadata separately. Official Predict wallet events emit
+  the realized fee amount and whether it is collateral or shares only after a
+  successful transaction, so read-only book evidence does not fabricate a
+  fee-adjusted fill.
+
 | Milestone | State | Evidence |
 |---|---|---|
 | P0 types/codec boundary | complete | `codec`, `p0_boundary` tests |
@@ -161,7 +178,7 @@ P7 durable recovery is implemented without integrating PMT:
 - [ ] Capture caller-authorized BNB testnet receipts and post-operation balance
   transitions for split, merge, convert and redeem.
 
-Current deterministic matrix: 30 Debug/Release tests.
+Current deterministic matrix: 31 Debug/Release tests.
 
 Release verification also rebuilds from the pinned `izan-crypto` archive,
 not a mutable checkout. A read-only build emits neither

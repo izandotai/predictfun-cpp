@@ -11,14 +11,16 @@ int main() {
   const auto topic = predictfun::codec::public_topic_name(
       predictfun::PublicTopic{predictfun::PublicTopicKind::orderbook, 42U, 2U});
   const auto budget = predictfun::Uint256::parse("1000000000000000000");
-  const auto liquidity = budget
-                             ? predictfun::analysis::quote_market_buy_value(
-                                   budget.value(), {})
-                             : predictfun::Result<
-                                   predictfun::analysis::MarketBuyQuote>{
-                                   budget.error()};
-  return price && price.value().ticks() == 42U && target && topic && liquidity &&
-                 !liquidity.value().complete &&
+  if (!budget)
+    return 1;
+  const auto liquidity =
+      predictfun::analysis::quote_market_buy_value(budget.value(), {});
+  const auto round_trip =
+      predictfun::analysis::quote_immediate_round_trip(budget.value(), {}, {});
+  return price && price.value().ticks() == 42U && target && topic &&
+                 liquidity && !liquidity.value().complete && round_trip &&
+                 !round_trip.value().complete &&
+                 round_trip.value().book_loss_value_wei.is_zero() &&
                  target.value() == "/v1/markets/42" &&
                  topic.value() == "predictOrderbook/42"
              ? 0

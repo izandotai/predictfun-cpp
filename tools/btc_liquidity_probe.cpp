@@ -3,6 +3,7 @@
 #include "predictfun/public_rest/client.hpp"
 
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/steady_timer.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -11,6 +12,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -21,13 +23,28 @@
 namespace {
 
 using predictfun::Result;
-using predictfun::analysis::MarketBuyQuote;
-
 struct Options {
   bool include_5m{true};
   bool include_15m{true};
   std::optional<std::string> jsonl_path;
+  std::size_t samples{1U};
+  std::chrono::milliseconds interval{5'000};
 };
+
+std::optional<std::uint64_t> unsigned_argument(std::string_view value) {
+  if (value.empty())
+    return std::nullopt;
+  std::uint64_t result = 0;
+  for (const auto ch : value) {
+    if (ch < '0' || ch > '9')
+      return std::nullopt;
+    const auto digit = static_cast<std::uint64_t>(ch - '0');
+    if (result > (std::numeric_limits<std::uint64_t>::max() - digit) / 10U)
+      return std::nullopt;
+    result = result * 10U + digit;
+  }
+  return result;
+}
 
 std::optional<Options> parse_options(int argc, char **argv) {
   Options options;
@@ -44,9 +61,24 @@ std::optional<Options> parse_options(int argc, char **argv) {
       options.include_15m = true;
     } else if (argument == "--jsonl" && index + 1 < argc) {
       options.jsonl_path = argv[++index];
+    } else if (argument == "--samples" && index + 1 < argc) {
+      const auto value = unsigned_argument(argv[++index]);
+      if (!value || *value > std::numeric_limits<std::size_t>::max())
+        return std::nullopt;
+      options.samples = static_cast<std::size_t>(*value);
+    } else if (argument == "--interval-ms" && index + 1 < argc) {
+      const auto value = unsigned_argument(argv[++index]);
+      if (!value || *value < 1'000U ||
+          *value > static_cast<std::uint64_t>(
+                       std::chrono::milliseconds::max().count()))
+        return std::nullopt;
+      options.interval = std::chrono::milliseconds{*value};
     } else {
       std::cerr << "usage: predictfun_btc_liquidity_probe "
-                   "[--5m|--15m|--both] [--jsonl FILE]\n";
+                   "[--5m|--15m|--both] [--jsonl FILE] "
+                   "[--samples N] [--interval-ms N]\n"
+                   "       samples=0 runs until interrupted; interval >=1000"
+                   " ms\n";
       return std::nullopt;
     }
   }
@@ -110,16 +142,22 @@ std::string json_escape(std::string_view value) {
 }
 
 struct OutcomeQuotes {
+  struct Budget {
+    std::string value;
+    predictfun::analysis::ImmediateRoundTripQuote round_trip;
+  };
+
   std::string name;
   std::string best_bid;
   std::string best_ask;
-  std::vector<std::pair<std::string, MarketBuyQuote>> budgets;
+  std::vector<Budget> budgets;
 };
 
 class Probe : public std::enable_shared_from_this<Probe> {
 public:
-  Probe(predictfun::public_rest::PublicRestClient &client, Options options)
-      : client_(client), options_(std::move(options)) {}
+  Probe(predictfun::public_rest::PublicRestClient &client,
+        boost::asio::io_context &io, Options options)
+      : client_(client), options_(std::move(options)), timer_(io) {}
 
   void start() {
     if (options_.jsonl_path) {
@@ -131,17 +169,23 @@ public:
         return;
       }
     }
+    request_round();
+  }
+
+  [[nodiscard]] bool successful() const noexcept {
+    return pending_ == 0U && !waiting_ && !failed_;
+  }
+
+private:
+  void request_round() {
+    waiting_ = false;
+    ++round_;
     if (options_.include_5m)
       request_interval("5m", 300U);
     if (options_.include_15m)
       request_interval("15m", 900U);
   }
 
-  [[nodiscard]] bool successful() const noexcept {
-    return pending_ == 0U && !failed_;
-  }
-
-private:
   void request_interval(std::string label, std::uint64_t seconds) {
     ++pending_;
     const auto epoch = current_window_epoch(seconds);
@@ -149,13 +193,15 @@ private:
     client_.async_get_category(
         slug,
         predictfun::net::RequestContext::with_timeout(std::chrono::seconds{15}),
-        [self = shared_from_this(), label,
-         slug](Result<predictfun::Category> category) {
-          self->on_category(label, slug, std::move(category));
+        [self = shared_from_this(), label, slug, epoch,
+         seconds](Result<predictfun::Category> category) {
+          self->on_category(label, slug, epoch, seconds, std::move(category));
         });
   }
 
   void on_category(const std::string &label, const std::string &slug,
+                   std::uint64_t window_start_epoch,
+                   std::uint64_t window_duration_seconds,
                    Result<predictfun::Category> category) {
     if (!category) {
       report_error(label, "category", category.error());
@@ -173,13 +219,18 @@ private:
     client_.async_get_orderbook(
         market.id, market.decimal_precision,
         predictfun::net::RequestContext::with_timeout(std::chrono::seconds{15}),
-        [self = shared_from_this(), label, slug,
+        [self = shared_from_this(), label, slug, window_start_epoch,
+         window_duration_seconds,
          market](Result<predictfun::Orderbook> book) mutable {
-          self->on_orderbook(label, slug, std::move(market), std::move(book));
+          self->on_orderbook(label, slug, window_start_epoch,
+                             window_duration_seconds, std::move(market),
+                             std::move(book));
         });
   }
 
   void on_orderbook(const std::string &label, const std::string &slug,
+                    std::uint64_t window_start_epoch,
+                    std::uint64_t window_duration_seconds,
                     predictfun::Market market,
                     Result<predictfun::Orderbook> book) {
     if (!book) {
@@ -207,7 +258,8 @@ private:
               << " | fee " << market.fee_rate_bps << " bps\n";
     print_outcome(up.value());
     print_outcome(down.value());
-    write_jsonl(label, slug, market, book.value(), up.value(), down.value());
+    write_jsonl(label, slug, window_start_epoch, window_duration_seconds,
+                market, book.value(), up.value(), down.value());
     finish_one();
   }
 
@@ -224,11 +276,12 @@ private:
                                               "000000000000000000");
       if (!value)
         return value.error();
-      auto quote =
-          predictfun::analysis::quote_market_buy_value(value.value(), asks);
+      auto quote = predictfun::analysis::quote_immediate_round_trip(
+          value.value(), asks, bids);
       if (!quote)
         return quote.error();
-      result.budgets.emplace_back(budget, std::move(quote.value()));
+      result.budgets.push_back(
+          OutcomeQuotes::Budget{budget, std::move(quote.value())});
     }
     return result;
   }
@@ -236,7 +289,10 @@ private:
   static void print_outcome(const OutcomeQuotes &outcome) {
     std::cout << "  " << outcome.name << " bid/ask " << outcome.best_bid << '/'
               << outcome.best_ask << '\n';
-    for (const auto &[budget, quote] : outcome.budgets) {
+    for (const auto &budget_quote : outcome.budgets) {
+      const auto &budget = budget_quote.value;
+      const auto &round_trip = budget_quote.round_trip;
+      const auto &quote = round_trip.buy;
       std::cout << "    $" << std::setw(2) << budget << "  "
                 << (quote.complete ? "FULL    " : "PARTIAL ") << "spent $"
                 << std::setw(7) << format_wei(quote.spent_value_wei, 4U)
@@ -244,25 +300,47 @@ private:
                 << format_wei(quote.shares_wei, 4U) << "  VWAP " << std::setw(7)
                 << format_wei(quote.vwap_price_wei, 4U) << "  worst "
                 << std::setw(7) << format_wei(quote.worst_price_wei, 4U)
-                << "  levels " << quote.levels_consumed << '\n';
+                << "  levels " << quote.levels_consumed << "  RT "
+                << (round_trip.complete ? "FULL" : "PART") << " -$"
+                << format_wei(round_trip.book_loss_value_wei, 4U) << '\n';
     }
   }
 
   void write_jsonl(const std::string &label, const std::string &slug,
+                   std::uint64_t window_start_epoch,
+                   std::uint64_t window_duration_seconds,
                    const predictfun::Market &market,
                    const predictfun::Orderbook &book, const OutcomeQuotes &up,
                    const OutcomeQuotes &down) {
     if (!journal_)
       return;
-    journal_ << "{\"schema\":\"predictfun.btc_liquidity.v1\""
-             << ",\"captured_at_ms\":"
-             << std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::system_clock::now().time_since_epoch())
-                    .count()
-             << ",\"interval\":\"" << label << "\""
+    const auto captured_at_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count();
+    const auto captured_epoch =
+        static_cast<std::uint64_t>(std::max<std::int64_t>(
+            captured_at_ms / 1'000, static_cast<std::int64_t>(0)));
+    const auto window_end_epoch = window_start_epoch + window_duration_seconds;
+    const auto seconds_remaining = captured_epoch < window_end_epoch
+                                       ? window_end_epoch - captured_epoch
+                                       : 0U;
+    const auto seconds_elapsed =
+        captured_epoch > window_start_epoch
+            ? std::min(captured_epoch - window_start_epoch,
+                       window_duration_seconds)
+            : 0U;
+    journal_ << "{\"schema\":\"predictfun.btc_liquidity.v2\""
+             << ",\"captured_at_ms\":" << captured_at_ms << ",\"interval\":\""
+             << label << "\""
              << ",\"category_slug\":\"" << json_escape(slug) << "\""
+             << ",\"window_start_epoch\":" << window_start_epoch
+             << ",\"window_duration_seconds\":" << window_duration_seconds
+             << ",\"seconds_elapsed\":" << seconds_elapsed
+             << ",\"seconds_remaining\":" << seconds_remaining
              << ",\"market_id\":" << market.id.value
              << ",\"book_timestamp_ms\":" << book.update_timestamp_ms
+             << ",\"sample_round\":" << round_
              << ",\"fee_rate_bps\":" << market.fee_rate_bps
              << ",\"outcomes\":[";
     write_json_outcome(up);
@@ -277,7 +355,10 @@ private:
              << ",\"best_bid\":\"" << outcome.best_bid << "\""
              << ",\"best_ask\":\"" << outcome.best_ask << "\",\"quotes\":[";
     bool first = true;
-    for (const auto &[budget, quote] : outcome.budgets) {
+    for (const auto &budget_quote : outcome.budgets) {
+      const auto &budget = budget_quote.value;
+      const auto &round_trip = budget_quote.round_trip;
+      const auto &quote = round_trip.buy;
       if (!first)
         journal_ << ',';
       first = false;
@@ -289,7 +370,13 @@ private:
                << "\",\"vwap\":\"" << format_wei(quote.vwap_price_wei, 8U)
                << "\",\"worst_price\":\""
                << format_wei(quote.worst_price_wei, 8U)
-               << "\",\"levels\":" << quote.levels_consumed << '}';
+               << "\",\"levels\":" << quote.levels_consumed
+               << ",\"round_trip_complete\":"
+               << (round_trip.complete ? "true" : "false")
+               << ",\"round_trip_recovered_pusd\":\""
+               << format_wei(round_trip.recovered_value_wei, 8U)
+               << "\",\"round_trip_book_loss_pusd\":\""
+               << format_wei(round_trip.book_loss_value_wei, 8U) << "\"}";
     }
     journal_ << "]}";
   }
@@ -306,12 +393,26 @@ private:
   void finish_one() {
     if (pending_ > 0U)
       --pending_;
+    if (pending_ != 0U)
+      return;
+    if (options_.samples != 0U && round_ >= options_.samples)
+      return;
+    waiting_ = true;
+    timer_.expires_after(options_.interval);
+    timer_.async_wait(
+        [self = shared_from_this()](const boost::system::error_code &error) {
+          if (!error)
+            self->request_round();
+        });
   }
 
   predictfun::public_rest::PublicRestClient &client_;
   Options options_;
+  boost::asio::steady_timer timer_;
   std::ofstream journal_;
   std::size_t pending_{0};
+  std::size_t round_{0};
+  bool waiting_{false};
   bool failed_{false};
 };
 
@@ -336,7 +437,7 @@ int main(int argc, char **argv) {
   client_options.api_key = [key = std::string{api_key}] { return key; };
   predictfun::public_rest::PublicRestClient client(io.get_executor(), transport,
                                                    std::move(client_options));
-  auto probe = std::make_shared<Probe>(client, *options);
+  auto probe = std::make_shared<Probe>(client, io, *options);
   probe->start();
   io.run();
   return probe->successful() ? EXIT_SUCCESS : EXIT_FAILURE;

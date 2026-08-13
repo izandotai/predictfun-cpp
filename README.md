@@ -122,7 +122,8 @@ PREDICT_FUN_API_KEY=... ./build/dev/predictfun_btc_liquidity_probe --both
 ```
 
 See [`docs/BTC_LIQUIDITY_PROBE.md`](docs/BTC_LIQUIDITY_PROBE.md) for output
-semantics and optional credential-free JSONL evidence.
+semantics, persistent cross-window sampling, exact same-snapshot round trips,
+and the credential-free grouped report.
 
 The public WebSocket probe takes an already-discovered market id and its
 decimal precision. It subscribes read-only, waits for a fresh public order-book

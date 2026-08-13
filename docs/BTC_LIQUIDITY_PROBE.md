@@ -25,11 +25,18 @@ For both UP and DOWN, the probe reports:
 - executable collateral spend and shares;
 - volume-weighted average execution price;
 - worst price reached and number of levels consumed.
+- whether the purchased shares can be sold back completely into the same
+  snapshot, the recovered collateral, and the resulting book-only loss.
 
 All calculations use exact 18-decimal integers. An insufficient book is a
-valid `PARTIAL` quote rather than a fabricated complete fill. Quotes are
-pre-fee; the market's `feeRateBps` is reported separately because actual fee
-amounts belong to the resulting match event.
+valid `PARTIAL` quote rather than a fabricated complete fill. Unspent purchase
+budget is never counted as a loss. The round trip is deliberately a
+same-snapshot stress measurement; it is not a prediction of a later exit.
+
+Quotes are pre-fee. The market's `feeRateBps` is recorded separately because
+the official account event reports the realized fee only after a successful
+transaction, including whether it was charged in collateral or shares. A
+public order book alone cannot authoritatively manufacture that result.
 
 ## Run
 
@@ -40,7 +47,30 @@ does not read `.env` files, print the key, or persist it.
 PREDICT_FUN_API_KEY=... ./build/dev/predictfun_btc_liquidity_probe --both
 PREDICT_FUN_API_KEY=... ./build/dev/predictfun_btc_liquidity_probe \
   --5m --jsonl ./runtime/btc-5m-liquidity.jsonl
+PREDICT_FUN_API_KEY=... ./build/dev/predictfun_btc_liquidity_probe \
+  --both --samples 0 --interval-ms 5000 \
+  --jsonl ./runtime/btc-liquidity-continuous.jsonl
 ```
 
+`--samples 0` runs until interrupted. Finite sample counts and intervals of at
+least 1000 ms are also supported. Every round re-derives the current UTC slug,
+so a long-running process crosses 5m/15m windows without retaining a stale
+market. Rows are flushed immediately, making an interrupted journal usable.
+
 The optional JSONL evidence contains only public market/book identifiers and
-derived quotes under schema `predictfun.btc_liquidity.v1`.
+derived quotes under schema `predictfun.btc_liquidity.v2`. It also records the
+window start, duration, elapsed time and remaining time.
+
+## Aggregate report
+
+The credential-free report groups evidence by interval, outcome, budget and
+normalized window quarter (`Q1` through `Q4`):
+
+```sh
+./build/dev/predictfun_btc_liquidity_report \
+  ./runtime/btc-liquidity-continuous.jsonl
+```
+
+It reports purchase and immediate-round-trip completion rates, mean VWAP,
+mean worst price, and mean/maximum book-only loss. Reported market fee rates
+remain visible but are not deducted from the book-only metric.

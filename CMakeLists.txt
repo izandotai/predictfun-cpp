@@ -451,6 +451,13 @@ if(PREDICTFUN_BUILD_TOOLS)
         PRIVATE predictfun::analysis predictfun::public_rest)
     predictfun_enable_warnings(predictfun_btc_liquidity_probe)
 
+    add_executable(predictfun_btc_liquidity_report
+        tools/btc_liquidity_report.cpp)
+    target_compile_features(predictfun_btc_liquidity_report PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_btc_liquidity_report
+        PRIVATE glaze::glaze)
+    predictfun_enable_warnings(predictfun_btc_liquidity_report)
+
     add_executable(predictfun_public_wss_probe tools/public_wss_probe.cpp)
     target_compile_features(predictfun_public_wss_probe PRIVATE cxx_std_20)
     target_link_libraries(predictfun_public_wss_probe
@@ -554,6 +561,12 @@ if(PREDICTFUN_BUILD_TESTS)
         PRIVATE predictfun::analysis)
     predictfun_enable_warnings(predictfun_liquidity_tests)
     add_test(NAME liquidity COMMAND predictfun_liquidity_tests)
+
+    if(PREDICTFUN_BUILD_TOOLS)
+        add_test(NAME liquidity_report
+            COMMAND predictfun_btc_liquidity_report
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/btc_liquidity_samples.jsonl)
+    endif()
 
     add_executable(predictfun_chain_tests tests/chain_tests.cpp)
     target_compile_features(predictfun_chain_tests PRIVATE cxx_std_20)
