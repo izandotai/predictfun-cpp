@@ -23,6 +23,8 @@ The current SDK contains independently linkable authority layers:
 - `predictfun::order` and optional `predictfun::local_signer`: integer-only
   order construction plus `izan-crypto` EIP-712 hashing and guarded,
   caller-controlled signing;
+- `predictfun::analysis`: exact, read-only executable-depth estimates that
+  distinguish complete fills from partial public liquidity;
 - `predictfun::trading`: single-attempt create/remove mutations with explicit
   ambiguous-result semantics;
 - `predictfun::lifecycle`: private-event plus REST reconciliation state;
@@ -110,6 +112,17 @@ PREDICT_FUN_API_KEY=... ./build/dev/predictfun_read_only_probe --mainnet
 ```
 
 The key value, query parameters, and response bodies are never printed.
+
+The BTC liquidity probe deterministically locates the current continuous 5m
+and 15m windows and measures exact UP/DOWN execution depth for $10, $25 and
+$50 without linking a signer or mutation path:
+
+```sh
+PREDICT_FUN_API_KEY=... ./build/dev/predictfun_btc_liquidity_probe --both
+```
+
+See [`docs/BTC_LIQUIDITY_PROBE.md`](docs/BTC_LIQUIDITY_PROBE.md) for output
+semantics and optional credential-free JSONL evidence.
 
 The public WebSocket probe takes an already-discovered market id and its
 decimal precision. It subscribes read-only, waits for a fresh public order-book

@@ -114,6 +114,13 @@ unofficial faucet, arbitrary mint call or embedded credential is introduced to
 bypass that boundary. The acceptance probe reports this distinction as a
 machine-readable READY/BLOCKED gate.
 
+P7 also exposes exact read-only executable-liquidity analysis as a separately
+linkable target. Its BTC 5m/15m probe selects the current epoch-derived market,
+derives the DOWN book from the canonical UP book, and reports complete versus
+partial $10/$25/$50 fills with integer VWAP, worst price and depth consumed.
+This establishes a reusable, non-authoritative integration boundary for PMT
+without importing credentials, signing or mutation authority.
+
 ### P7: production hardening and release
 
 - Persistent reconciliation journal and restart recovery example.

@@ -2,6 +2,19 @@
 
 Updated: 2026-08-13
 
+## 2026-08-13 — exact BTC 5m/15m executable-liquidity measurement
+
+- Added separately linkable `predictfun::analysis` with exact-integer fixed
+  budget market-buy quotes: complete/partial, spend, shares, VWAP, worst price
+  and consumed levels.
+- Added a read-only mainnet probe that deterministically locates the current
+  BTC 5m and 15m categories and measures both UP/DOWN at $10/$25/$50.
+- Live mainnet verification found both current windows and successfully priced
+  every requested budget. The evidence contains no API credential and clearly
+  reports the market fee rate separately from pre-fee book execution.
+- Added invalid/empty/insufficient/cross-level deterministic coverage and
+  installed the new analysis target for downstream consumers.
+
 ## 2026-08-13 — P7 live testnet readiness gate
 
 - Revalidated BNB testnet chain id 97, 0.3 tBNB native gas, registered
@@ -148,7 +161,7 @@ P7 durable recovery is implemented without integrating PMT:
 - [ ] Capture caller-authorized BNB testnet receipts and post-operation balance
   transitions for split, merge, convert and redeem.
 
-Current deterministic matrix: 29 Debug/Release tests.
+Current deterministic matrix: 30 Debug/Release tests.
 
 Release verification also rebuilds from the pinned `izan-crypto` archive,
 not a mutable checkout. A read-only build emits neither

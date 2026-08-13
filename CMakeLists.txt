@@ -299,6 +299,19 @@ target_link_libraries(predictfun_order
 )
 predictfun_enable_warnings(predictfun_order)
 
+add_library(predictfun_analysis STATIC
+    src/liquidity.cpp
+)
+add_library(predictfun::analysis ALIAS predictfun_analysis)
+target_compile_features(predictfun_analysis PUBLIC cxx_std_20)
+target_include_directories(predictfun_analysis
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+target_link_libraries(predictfun_analysis PUBLIC predictfun::types)
+predictfun_enable_warnings(predictfun_analysis)
+
 add_library(predictfun_chain STATIC
     src/chain_abi.cpp
     src/chain_approvals.cpp
@@ -364,6 +377,7 @@ set_target_properties(predictfun_private_wss PROPERTIES EXPORT_NAME private_wss)
 set_target_properties(predictfun_trading PROPERTIES EXPORT_NAME trading)
 set_target_properties(predictfun_lifecycle PROPERTIES EXPORT_NAME lifecycle)
 set_target_properties(predictfun_order PROPERTIES EXPORT_NAME order)
+set_target_properties(predictfun_analysis PROPERTIES EXPORT_NAME analysis)
 set_target_properties(predictfun_chain PROPERTIES EXPORT_NAME chain)
 if(PREDICTFUN_BUILD_LOCAL_SIGNER)
     set_target_properties(predictfun_local_signer PROPERTIES
@@ -376,7 +390,7 @@ set(PREDICTFUN_INSTALL_TARGETS
     predictfun_types predictfun_codec predictfun_net predictfun_public_rest
     predictfun_public_wss predictfun_auth predictfun_private_rest
     predictfun_private_wss predictfun_trading predictfun_lifecycle
-    predictfun_order predictfun_chain)
+    predictfun_order predictfun_analysis predictfun_chain)
 if(PREDICTFUN_BUILD_LOCAL_SIGNER)
     list(APPEND PREDICTFUN_INSTALL_TARGETS predictfun_local_signer
         predictfun_local_transaction_signer)
@@ -429,6 +443,13 @@ if(PREDICTFUN_BUILD_TOOLS)
         PRIVATE predictfun::public_rest
     )
     predictfun_enable_warnings(predictfun_read_only_probe)
+
+    add_executable(predictfun_btc_liquidity_probe
+        tools/btc_liquidity_probe.cpp)
+    target_compile_features(predictfun_btc_liquidity_probe PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_btc_liquidity_probe
+        PRIVATE predictfun::analysis predictfun::public_rest)
+    predictfun_enable_warnings(predictfun_btc_liquidity_probe)
 
     add_executable(predictfun_public_wss_probe tools/public_wss_probe.cpp)
     target_compile_features(predictfun_public_wss_probe PRIVATE cxx_std_20)
@@ -526,6 +547,13 @@ if(PREDICTFUN_BUILD_TESTS)
     target_link_libraries(predictfun_order_tests PRIVATE predictfun::order)
     predictfun_enable_warnings(predictfun_order_tests)
     add_test(NAME order COMMAND predictfun_order_tests)
+
+    add_executable(predictfun_liquidity_tests tests/liquidity_tests.cpp)
+    target_compile_features(predictfun_liquidity_tests PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_liquidity_tests
+        PRIVATE predictfun::analysis)
+    predictfun_enable_warnings(predictfun_liquidity_tests)
+    add_test(NAME liquidity COMMAND predictfun_liquidity_tests)
 
     add_executable(predictfun_chain_tests tests/chain_tests.cpp)
     target_compile_features(predictfun_chain_tests PRIVATE cxx_std_20)
