@@ -2,13 +2,23 @@
 #include "predictfun/net/http.hpp"
 #include "predictfun/public_rest/client.hpp"
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/signal_set.hpp>
 #include <boost/asio/steady_timer.hpp>
 
 #include <algorithm>
 #include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -27,8 +37,10 @@ struct Options {
   bool include_5m{true};
   bool include_15m{true};
   std::optional<std::string> jsonl_path;
+  std::optional<std::string> status_path;
   std::size_t samples{1U};
   std::chrono::milliseconds interval{5'000};
+  bool quiet{false};
 };
 
 std::optional<std::uint64_t> unsigned_argument(std::string_view value) {
@@ -61,6 +73,8 @@ std::optional<Options> parse_options(int argc, char **argv) {
       options.include_15m = true;
     } else if (argument == "--jsonl" && index + 1 < argc) {
       options.jsonl_path = argv[++index];
+    } else if (argument == "--status-json" && index + 1 < argc) {
+      options.status_path = argv[++index];
     } else if (argument == "--samples" && index + 1 < argc) {
       const auto value = unsigned_argument(argv[++index]);
       if (!value || *value > std::numeric_limits<std::size_t>::max())
@@ -73,10 +87,13 @@ std::optional<Options> parse_options(int argc, char **argv) {
                        std::chrono::milliseconds::max().count()))
         return std::nullopt;
       options.interval = std::chrono::milliseconds{*value};
+    } else if (argument == "--quiet") {
+      options.quiet = true;
     } else {
       std::cerr << "usage: predictfun_btc_liquidity_probe "
                    "[--5m|--15m|--both] [--jsonl FILE] "
-                   "[--samples N] [--interval-ms N]\n"
+                   "[--status-json FILE] [--samples N] [--interval-ms N] "
+                   "[--quiet]\n"
                    "       samples=0 runs until interrupted; interval >=1000"
                    " ms\n";
       return std::nullopt;
@@ -161,25 +178,64 @@ public:
 
   void start() {
     if (options_.jsonl_path) {
+      if (!ensure_parent_directory(*options_.jsonl_path)) {
+        fatal_error_ = "cannot create JSONL output directory";
+        write_status("failed");
+        return;
+      }
       journal_.open(*options_.jsonl_path, std::ios::app);
       if (!journal_) {
         std::cerr << "cannot open JSONL output: " << *options_.jsonl_path
                   << '\n';
-        failed_ = true;
+        fatal_error_ = "cannot open JSONL output";
+        write_status("failed");
         return;
       }
     }
+    started_at_ms_ = now_ms();
+    write_status("starting");
     request_round();
   }
 
   [[nodiscard]] bool successful() const noexcept {
-    return pending_ == 0U && !waiting_ && !failed_;
+    return fatal_error_.empty() && successful_intervals_ > 0U &&
+           (options_.samples == 0U || errors_ == 0U);
+  }
+
+  [[nodiscard]] bool initialized() const noexcept {
+    return fatal_error_.empty();
+  }
+
+  void stop() {
+    stopping_ = true;
+    timer_.cancel();
+    write_status("stopped");
   }
 
 private:
+  static std::int64_t now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
+  }
+
+  static bool ensure_parent_directory(const std::string &path) {
+    const std::filesystem::path output{path};
+    if (!output.has_parent_path())
+      return true;
+    std::error_code error;
+    std::filesystem::create_directories(output.parent_path(), error);
+    return !error;
+  }
+
   void request_round() {
+    if (stopping_)
+      return;
     waiting_ = false;
     ++round_;
+    current_round_successes_ = 0U;
+    current_round_errors_ = 0U;
+    last_round_at_ms_ = now_ms();
     if (options_.include_5m)
       request_interval("5m", 300U);
     if (options_.include_15m)
@@ -211,7 +267,9 @@ private:
     if (category.value().markets.empty()) {
       std::cerr << label << " current category contains no market: " << slug
                 << '\n';
-      failed_ = true;
+      ++errors_;
+      ++current_round_errors_;
+      last_error_ = label + " category contains no market: " + slug;
       finish_one();
       return;
     }
@@ -250,16 +308,21 @@ private:
       return;
     }
 
-    std::cout << "\nBTC " << label << " CURRENT\n"
-              << "  category " << slug << '\n'
-              << "  market   " << market.id.value << " | " << market.title
-              << '\n'
-              << "  book age timestamp " << book.value().update_timestamp_ms
-              << " | fee " << market.fee_rate_bps << " bps\n";
-    print_outcome(up.value());
-    print_outcome(down.value());
+    if (!options_.quiet) {
+      std::cout << "\nBTC " << label << " CURRENT\n"
+                << "  category " << slug << '\n'
+                << "  market   " << market.id.value << " | " << market.title
+                << '\n'
+                << "  book age timestamp " << book.value().update_timestamp_ms
+                << " | fee " << market.fee_rate_bps << " bps\n";
+      print_outcome(up.value());
+      print_outcome(down.value());
+    }
     write_jsonl(label, slug, window_start_epoch, window_duration_seconds,
                 market, book.value(), up.value(), down.value());
+    ++successful_intervals_;
+    ++current_round_successes_;
+    last_success_at_ms_ = now_ms();
     finish_one();
   }
 
@@ -387,13 +450,18 @@ private:
               << " failed: code=" << static_cast<int>(error.code)
               << " http=" << error.http_status << " field=" << error.field
               << " message=" << error.message << '\n';
-    failed_ = true;
+    ++errors_;
+    ++current_round_errors_;
+    last_error_ = label + " " + std::string{stage} + ": " + error.message;
   }
 
   void finish_one() {
     if (pending_ > 0U)
       --pending_;
     if (pending_ != 0U)
+      return;
+    write_status(stopping_ ? "stopped" : "running");
+    if (stopping_)
       return;
     if (options_.samples != 0U && round_ >= options_.samples)
       return;
@@ -406,14 +474,68 @@ private:
         });
   }
 
+  void write_status(std::string_view state) const {
+    if (!options_.status_path)
+      return;
+    if (!ensure_parent_directory(*options_.status_path))
+      return;
+    const std::filesystem::path destination{*options_.status_path};
+    auto temporary = destination;
+    temporary += ".tmp";
+    std::ofstream output{temporary, std::ios::trunc};
+    if (!output)
+      return;
+    output << "{\"schema\":\"predictfun.btc_liquidity.status.v1\""
+           << ",\"state\":\"" << json_escape(state) << "\""
+           << ",\"pid\":"
+#ifdef _WIN32
+           << static_cast<unsigned long>(::GetCurrentProcessId())
+#else
+           << static_cast<long>(::getpid())
+#endif
+           << ",\"started_at_ms\":" << started_at_ms_
+           << ",\"updated_at_ms\":" << now_ms()
+           << ",\"last_round_at_ms\":" << last_round_at_ms_
+           << ",\"last_success_at_ms\":" << last_success_at_ms_
+           << ",\"round\":" << round_
+           << ",\"successful_intervals\":" << successful_intervals_
+           << ",\"errors\":" << errors_
+           << ",\"round_successes\":" << current_round_successes_
+           << ",\"round_errors\":" << current_round_errors_
+           << ",\"last_error\":\"" << json_escape(last_error_) << "\""
+           << ",\"fatal_error\":\"" << json_escape(fatal_error_) << "\"}\n";
+    output.close();
+    if (!output)
+      return;
+    std::error_code error;
+#ifdef _WIN32
+    const auto replaced = ::MoveFileExW(
+        temporary.c_str(), destination.c_str(),
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+    if (replaced == 0)
+      std::filesystem::remove(temporary, error);
+#else
+    std::filesystem::rename(temporary, destination, error);
+#endif
+  }
+
   predictfun::public_rest::PublicRestClient &client_;
   Options options_;
   boost::asio::steady_timer timer_;
   std::ofstream journal_;
   std::size_t pending_{0};
   std::size_t round_{0};
+  std::size_t successful_intervals_{0};
+  std::size_t errors_{0};
+  std::size_t current_round_successes_{0};
+  std::size_t current_round_errors_{0};
+  std::int64_t started_at_ms_{0};
+  std::int64_t last_round_at_ms_{0};
+  std::int64_t last_success_at_ms_{0};
+  std::string last_error_;
+  std::string fatal_error_;
   bool waiting_{false};
-  bool failed_{false};
+  bool stopping_{false};
 };
 
 } // namespace
@@ -439,6 +561,19 @@ int main(int argc, char **argv) {
                                                    std::move(client_options));
   auto probe = std::make_shared<Probe>(client, io, *options);
   probe->start();
+  if (!probe->initialized())
+    return EXIT_FAILURE;
+  std::unique_ptr<boost::asio::signal_set> signals;
+  if (options->samples == 0U) {
+    signals = std::make_unique<boost::asio::signal_set>(io, SIGINT, SIGTERM);
+    signals->async_wait(
+        [probe, &io](const boost::system::error_code &error, int) {
+          if (!error) {
+            probe->stop();
+            io.stop();
+          }
+        });
+  }
   io.run();
   return probe->successful() ? EXIT_SUCCESS : EXIT_FAILURE;
 }

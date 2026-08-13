@@ -1,10 +1,12 @@
 #include <glaze/glaze.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
 #include <iomanip>
+#include <iterator>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -39,6 +41,7 @@ struct WireSample {
   std::string interval;
   std::uint64_t window_duration_seconds{0};
   std::uint64_t seconds_remaining{0};
+  std::uint64_t window_start_epoch{0};
   std::uint64_t market_id{0};
   std::uint32_t fee_rate_bps{0};
   std::vector<WireOutcome> outcomes;
@@ -64,6 +67,7 @@ struct Aggregate {
   long double worst_price_sum{0};
   long double book_loss_sum{0};
   long double book_loss_max{0};
+  std::set<std::uint64_t> windows;
 };
 
 bool decimal(std::string_view text, long double &value) {
@@ -105,6 +109,8 @@ int run(const std::string &path) {
 
   std::map<Key, Aggregate> aggregates;
   std::set<std::uint64_t> markets;
+  std::map<std::pair<std::string, std::string>, std::set<std::uint64_t>>
+      coverage;
   std::set<std::uint32_t> fees;
   std::int64_t first_ms = std::numeric_limits<std::int64_t>::max();
   std::int64_t last_ms = 0;
@@ -126,7 +132,9 @@ int run(const std::string &path) {
         sample.captured_at_ms <= 0 || sample.interval.empty() ||
         sample.window_duration_seconds == 0U ||
         sample.seconds_remaining > sample.window_duration_seconds ||
-        sample.market_id == 0U || sample.outcomes.size() != 2U) {
+        sample.market_id == 0U || sample.outcomes.size() != 2U ||
+        sample.window_start_epoch + sample.window_duration_seconds <
+            sample.window_start_epoch) {
       std::cerr << "invalid liquidity sample at line " << line_number << '\n';
       return 1;
     }
@@ -136,6 +144,9 @@ int run(const std::string &path) {
     fees.insert(sample.fee_rate_bps);
     first_ms = std::min(first_ms, sample.captured_at_ms);
     last_ms = std::max(last_ms, sample.captured_at_ms);
+    coverage[{sample.interval,
+              phase(sample.seconds_remaining, sample.window_duration_seconds)}]
+        .insert(sample.window_start_epoch);
     for (const auto &outcome : sample.outcomes) {
       if (outcome.name.empty()) {
         std::cerr << "missing outcome at line " << line_number << '\n';
@@ -161,6 +172,7 @@ int run(const std::string &path) {
         aggregate.worst_price_sum += worst;
         aggregate.book_loss_sum += loss;
         aggregate.book_loss_max = std::max(aggregate.book_loss_max, loss);
+        aggregate.windows.insert(sample.window_start_epoch);
       }
     }
   }
@@ -186,7 +198,7 @@ int run(const std::string &path) {
     std::cout << fee;
   }
   std::cout << " (reported, not deducted)\n\n"
-            << "TF   PHASE SIDE  BUDGET  N    BUY-FULL  RT-FULL  AVG-VWAP  "
+            << "TF   PHASE SIDE  BUDGET  N    WIN  BUY-FULL  RT-FULL  AVG-VWAP  "
                "AVG-WORST  AVG-BOOK-LOSS  MAX-BOOK-LOSS\n";
 
   for (const auto &[key, aggregate] : aggregates) {
@@ -194,7 +206,8 @@ int run(const std::string &path) {
     std::cout << std::left << std::setw(4) << key.interval << ' '
               << std::setw(5) << key.phase << ' ' << std::setw(5) << key.outcome
               << " $" << std::right << std::setw(5) << key.budget << "  "
-              << std::setw(4) << aggregate.samples << "  " << std::setw(8)
+              << std::setw(4) << aggregate.samples << "  " << std::setw(3)
+              << aggregate.windows.size() << "  " << std::setw(8)
               << percent(aggregate.buy_complete, aggregate.samples) << "  "
               << std::setw(7)
               << percent(aggregate.round_trip_complete, aggregate.samples)
@@ -203,6 +216,40 @@ int run(const std::string &path) {
               << (aggregate.worst_price_sum / divisor) << "  $" << std::setw(13)
               << (aggregate.book_loss_sum / divisor) << "  $" << std::setw(13)
               << aggregate.book_loss_max << '\n';
+  }
+
+  std::cout << "\nWINDOW COVERAGE\nTF   Q1  Q2  Q3  Q4  COMPLETE\n";
+  std::set<std::string> intervals;
+  for (const auto &[key, _] : coverage)
+    intervals.insert(key.first);
+  for (const auto &interval : intervals) {
+    std::array<std::size_t, 4U> counts{};
+    std::set<std::uint64_t> complete;
+    bool first_phase = true;
+    for (std::size_t index = 0; index < counts.size(); ++index) {
+      const auto key = std::make_pair(interval, "Q" + std::to_string(index + 1U));
+      const auto found = coverage.find(key);
+      if (found == coverage.end()) {
+        complete.clear();
+        first_phase = false;
+        continue;
+      }
+      counts[index] = found->second.size();
+      if (first_phase) {
+        complete = found->second;
+        first_phase = false;
+      } else {
+        std::set<std::uint64_t> intersection;
+        std::set_intersection(complete.begin(), complete.end(),
+                              found->second.begin(), found->second.end(),
+                              std::inserter(intersection, intersection.begin()));
+        complete = std::move(intersection);
+      }
+    }
+    std::cout << std::left << std::setw(4) << interval;
+    for (const auto count : counts)
+      std::cout << ' ' << std::right << std::setw(3) << count;
+    std::cout << "  " << std::setw(8) << complete.size() << '\n';
   }
 
   std::cout << "\nBook loss is the same-snapshot ask-to-bid round trip and "

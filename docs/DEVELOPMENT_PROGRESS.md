@@ -2,6 +2,20 @@
 
 Updated: 2026-08-13
 
+## 2026-08-13 - long-running BTC liquidity collection hardening
+
+- Added atomic, credential-free collector health status with last round,
+  last successful evidence, transient error counters and sanitized reason.
+- Continuous mode now survives transient category/order-book failures; a past
+  error no longer makes every later successful round report process failure.
+- Added graceful signal shutdown, quiet operation, parent-directory creation,
+  and run/status/stop scripts backed by one fixed append-only journal.
+- Extended the report with distinct-window counts and Q1-Q4 full-window
+  coverage, preventing high-frequency rows from masquerading as independent
+  evidence.
+- The collector remains public/read-only and has no signer, wallet, order or
+  mutation dependency.
+
 ## 2026-08-13 — exact BTC 5m/15m executable-liquidity measurement
 
 - Added separately linkable `predictfun::analysis` with exact-integer fixed

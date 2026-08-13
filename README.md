@@ -125,6 +125,16 @@ See [`docs/BTC_LIQUIDITY_PROBE.md`](docs/BTC_LIQUIDITY_PROBE.md) for output
 semantics, persistent cross-window sampling, exact same-snapshot round trips,
 and the credential-free grouped report.
 
+For durable multi-window evidence collection, use the supplied run/status/stop
+scripts. They keep one append-only journal across restarts and publish a
+machine-readable health heartbeat without ever linking a trading target:
+
+```sh
+./scripts/run-btc-liquidity-collector.sh
+./scripts/status-btc-liquidity-collector.sh
+./scripts/stop-btc-liquidity-collector.sh
+```
+
 The public WebSocket probe takes an already-discovered market id and its
 decimal precision. It subscribes read-only, waits for a fresh public order-book
 message, and exits without linking any trading path:
