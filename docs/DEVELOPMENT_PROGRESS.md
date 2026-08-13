@@ -13,7 +13,7 @@ Updated: 2026-08-13
 | P4 deterministic order builder | complete | official SDK/ethers golden vectors and local signer tests |
 | P5 trading/reconciliation | implementation complete | `trading`, `lifecycle`, match/order REST and `p5_boundary` tests |
 | P6 BNB wallet operations | implementation complete | deterministic transaction/approval gate complete; live testnet evidence pending |
-| P7 hardening/release | in progress | durable recovery, shared rate budgets, reconnect-storm protection and hostile-input testing implemented |
+| P7 hardening/release | in progress | durable recovery, shared rate budgets, reconnect-storm protection, hostile-input testing and gated testnet acceptance harness implemented |
 
 ## Completed P3 checklist
 
@@ -124,14 +124,19 @@ P7 durable recovery is implemented without integrating PMT:
   ASan/UBSan and a deterministic libFuzzer smoke run.
 - [x] Installed-package consumer matrix for public/read-only and explicit
   local-signer consumers.
-- [ ] Explicitly gated testnet operation harness.
+- [x] Explicitly gated testnet scoped-approval harness with a default read-only
+  probe, exact owner/scope confirmation, interactive secret input and
+  append-only receipt/balance/approval evidence.
+- [ ] Capture caller-authorized BNB testnet receipts and post-operation balance
+  transitions for split, merge, convert and redeem.
 
-Current deterministic matrix: 27 Debug/Release tests.
+Current deterministic matrix: 29 Debug/Release tests.
 
 Release verification also rebuilds from the pinned `izan-crypto` archive,
 not a mutable checkout. A read-only build emits neither
 `predictfun_local_signer` nor `izan_secp256k1`, while an installed-package
 consumer must opt into the signer target explicitly.
 
-Next: add an explicitly gated BNB testnet operation harness and evidence
-format, without embedding credentials or silently performing a mutation.
+Next: use the now-gated harness to capture caller-authorized testnet evidence,
+then extend the same evidence envelope over split, merge, convert and redeem
+acceptance scenarios without changing the SDK's authority boundary.

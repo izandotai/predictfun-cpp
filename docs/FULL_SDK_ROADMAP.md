@@ -94,6 +94,12 @@ reconciliation, receipt waiting and EOA/Predict Account routing pass the local
 Debug suite. Live testnet receipt and post-balance evidence remains in the
 caller-authorized final release matrix.
 
+The P7 acceptance harness now provides a BNB-testnet-only, default-read-only
+probe plus an exact owner/scope-gated approval runner and append-only evidence
+schema. It accepts secrets only from an interactive hidden prompt, records
+receipts and before/after balances/approvals, and never blind-retries an
+ambiguous submission. Actual funded testnet evidence remains caller-authorized.
+
 ### P7: production hardening and release
 
 - Persistent reconciliation journal and restart recovery example.

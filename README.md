@@ -35,8 +35,9 @@ The current SDK contains independently linkable authority layers:
 P0 through P6 are implemented and pass the deterministic Debug and Release
 test matrices. P7 production hardening is in progress; durable recovery,
 shared REST budgets, reconnect-storm protection, property/adversarial tests,
-fault injection, sanitizer CI and a codec fuzzer are present. Live testnet
-evidence, package-consumer verification and the final API audit remain. The
+fault injection, sanitizer CI, a codec fuzzer, installed-package consumers and
+an explicitly gated BNB-testnet acceptance harness are present. Funded,
+caller-authorized operation evidence and the final API audit remain. The
 optional mainnet API key is supplied by the caller and is emitted
 only as an `x-api-key` header; the SDK does not read environment files and
 rejects credentials in request targets.

@@ -410,6 +410,18 @@ install(
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/predictfun
 )
 
+if(PREDICTFUN_BUILD_TOOLS OR PREDICTFUN_BUILD_TESTS)
+    add_library(predictfun_testnet_acceptance_support STATIC
+        tools/testnet_acceptance_support.cpp)
+    target_compile_features(predictfun_testnet_acceptance_support
+        PUBLIC cxx_std_20)
+    target_include_directories(predictfun_testnet_acceptance_support
+        PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+    target_link_libraries(predictfun_testnet_acceptance_support
+        PUBLIC predictfun::chain)
+    predictfun_enable_warnings(predictfun_testnet_acceptance_support)
+endif()
+
 if(PREDICTFUN_BUILD_TOOLS)
     add_executable(predictfun_read_only_probe tools/read_only_probe.cpp)
     target_compile_features(predictfun_read_only_probe PRIVATE cxx_std_20)
@@ -431,6 +443,16 @@ if(PREDICTFUN_BUILD_TOOLS)
         PRIVATE predictfun::lifecycle
     )
     predictfun_enable_warnings(predictfun_recovery_example)
+
+    if(PREDICTFUN_BUILD_LOCAL_SIGNER)
+        add_executable(predictfun_testnet_acceptance
+            tools/testnet_acceptance.cpp)
+        target_compile_features(predictfun_testnet_acceptance PRIVATE cxx_std_20)
+        target_link_libraries(predictfun_testnet_acceptance PRIVATE
+            predictfun_testnet_acceptance_support
+            predictfun::local_transaction_signer)
+        predictfun_enable_warnings(predictfun_testnet_acceptance)
+    endif()
 endif()
 
 if(PREDICTFUN_BUILD_TESTS)
@@ -510,6 +532,15 @@ if(PREDICTFUN_BUILD_TESTS)
     target_link_libraries(predictfun_chain_tests PRIVATE predictfun::chain)
     predictfun_enable_warnings(predictfun_chain_tests)
     add_test(NAME chain COMMAND predictfun_chain_tests)
+
+    add_executable(predictfun_testnet_acceptance_tests
+        tests/testnet_acceptance_tests.cpp)
+    target_compile_features(predictfun_testnet_acceptance_tests
+        PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_testnet_acceptance_tests
+        PRIVATE predictfun_testnet_acceptance_support)
+    predictfun_enable_warnings(predictfun_testnet_acceptance_tests)
+    add_test(NAME testnet_acceptance COMMAND predictfun_testnet_acceptance_tests)
 
     if(PREDICTFUN_BUILD_LOCAL_SIGNER)
         add_executable(predictfun_local_signer_tests
@@ -648,6 +679,12 @@ if(PREDICTFUN_BUILD_TESTS)
         COMMAND ${CMAKE_COMMAND}
             -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_p6_boundary.cmake
+    )
+    add_test(
+        NAME testnet_acceptance_boundary
+        COMMAND ${CMAKE_COMMAND}
+            -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_testnet_acceptance_boundary.cmake
     )
 endif()
 
