@@ -33,8 +33,7 @@ public:
 
   [[nodiscard]] Result<bool> initialize();
   [[nodiscard]] Result<bool> append(const TrackedOrder &order);
-  [[nodiscard]] Result<bool>
-  append(const std::vector<TrackedOrder> &orders);
+  [[nodiscard]] Result<bool> append(const std::vector<TrackedOrder> &orders);
   [[nodiscard]] Result<JournalReplay> replay() const;
 
   [[nodiscard]] const std::filesystem::path &path() const noexcept {
@@ -48,18 +47,20 @@ private:
 
 // Transactional facade: an in-memory lifecycle transition is journaled before
 // it becomes visible to the caller. On restart, terminal states are restored
-// and all nonterminal states are quarantined until complete REST reconciliation.
+// and all nonterminal states are quarantined until complete REST
+// reconciliation.
 class PersistentOrderTracker {
 public:
   [[nodiscard]] static Result<PersistentOrderTracker>
   open(std::filesystem::path path, JournalOptions options = {});
 
-  [[nodiscard]] Result<TrackedOrder *>
-  begin_submission(std::string hash, ExactDecimal amount);
+  [[nodiscard]] Result<TrackedOrder *> begin_submission(std::string hash,
+                                                        ExactDecimal amount);
   [[nodiscard]] Result<bool>
-  apply_create_outcome(
-      std::string_view hash,
-      const MutationOutcome<CreateOrderReceipt> &outcome);
+  apply_create_outcome(std::string_view hash,
+                       const MutationOutcome<CreateOrderReceipt> &outcome);
+  [[nodiscard]] Result<bool> mark_submission_rejected(std::string_view hash,
+                                                      const Error &error);
   [[nodiscard]] Result<bool> apply_rest_order(const OrderRecord &order);
   [[nodiscard]] Result<bool> apply_wallet_event(const WalletEvent &event);
   [[nodiscard]] Result<bool> mark_book_removed(std::string_view hash);
@@ -72,8 +73,7 @@ public:
   [[nodiscard]] TrackedOrder *find(std::string_view hash) noexcept {
     return tracker_.find(hash);
   }
-  [[nodiscard]] const TrackedOrder *
-  find(std::string_view hash) const noexcept {
+  [[nodiscard]] const TrackedOrder *find(std::string_view hash) const noexcept {
     return tracker_.find(hash);
   }
   [[nodiscard]] std::vector<TrackedOrder> snapshot() const {

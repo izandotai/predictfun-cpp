@@ -274,6 +274,21 @@ target_include_directories(predictfun_lifecycle
 target_link_libraries(predictfun_lifecycle PUBLIC predictfun::types)
 predictfun_enable_warnings(predictfun_lifecycle)
 
+add_library(predictfun_execution STATIC
+    src/execution_session.cpp
+)
+add_library(predictfun::execution ALIAS predictfun_execution)
+target_compile_features(predictfun_execution PUBLIC cxx_std_20)
+target_include_directories(predictfun_execution
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+target_link_libraries(predictfun_execution
+    PUBLIC predictfun::trading predictfun::lifecycle predictfun::private_rest
+)
+predictfun_enable_warnings(predictfun_execution)
+
 add_library(predictfun_order STATIC
     src/order_types.cpp
     src/order_amounts.cpp
@@ -376,6 +391,7 @@ set_target_properties(predictfun_private_rest PROPERTIES EXPORT_NAME private_res
 set_target_properties(predictfun_private_wss PROPERTIES EXPORT_NAME private_wss)
 set_target_properties(predictfun_trading PROPERTIES EXPORT_NAME trading)
 set_target_properties(predictfun_lifecycle PROPERTIES EXPORT_NAME lifecycle)
+set_target_properties(predictfun_execution PROPERTIES EXPORT_NAME execution)
 set_target_properties(predictfun_order PROPERTIES EXPORT_NAME order)
 set_target_properties(predictfun_analysis PROPERTIES EXPORT_NAME analysis)
 set_target_properties(predictfun_chain PROPERTIES EXPORT_NAME chain)
@@ -390,7 +406,7 @@ set(PREDICTFUN_INSTALL_TARGETS
     predictfun_types predictfun_codec predictfun_net predictfun_public_rest
     predictfun_public_wss predictfun_auth predictfun_private_rest
     predictfun_private_wss predictfun_trading predictfun_lifecycle
-    predictfun_order predictfun_analysis predictfun_chain)
+    predictfun_execution predictfun_order predictfun_analysis predictfun_chain)
 if(PREDICTFUN_BUILD_LOCAL_SIGNER)
     list(APPEND PREDICTFUN_INSTALL_TARGETS predictfun_local_signer
         predictfun_local_transaction_signer)
@@ -548,6 +564,13 @@ if(PREDICTFUN_BUILD_TESTS)
         PRIVATE predictfun::lifecycle predictfun::codec)
     predictfun_enable_warnings(predictfun_lifecycle_tests)
     add_test(NAME lifecycle COMMAND predictfun_lifecycle_tests)
+
+    add_executable(predictfun_execution_tests tests/execution_tests.cpp)
+    target_compile_features(predictfun_execution_tests PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_execution_tests
+        PRIVATE predictfun::execution predictfun::codec)
+    predictfun_enable_warnings(predictfun_execution_tests)
+    add_test(NAME execution COMMAND predictfun_execution_tests)
 
     add_executable(predictfun_order_tests tests/order_tests.cpp)
     target_compile_features(predictfun_order_tests PRIVATE cxx_std_20)
@@ -720,6 +743,12 @@ if(PREDICTFUN_BUILD_TESTS)
         COMMAND ${CMAKE_COMMAND}
             -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_p6_boundary.cmake
+    )
+    add_test(
+        NAME execution_boundary
+        COMMAND ${CMAKE_COMMAND}
+            -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_execution_boundary.cmake
     )
     add_test(
         NAME testnet_acceptance_boundary

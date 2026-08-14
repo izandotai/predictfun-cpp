@@ -1,5 +1,6 @@
 #include "predictfun/analysis/liquidity.hpp"
 #include "predictfun/codec/public_websocket.hpp"
+#include "predictfun/execution/session.hpp"
 #include "predictfun/public_rest/client.hpp"
 #include "predictfun/public_wss/client.hpp"
 #include "predictfun/types/decimal.hpp"
@@ -17,11 +18,14 @@ int main() {
       predictfun::analysis::quote_market_buy_value(budget.value(), {});
   const auto round_trip =
       predictfun::analysis::quote_immediate_round_trip(budget.value(), {}, {});
+  predictfun::CreateOrderRequest empty_order;
+  const auto tracked_shares =
+      predictfun::execution::protocol::tracked_share_amount(empty_order);
   return price && price.value().ticks() == 42U && target && topic &&
                  liquidity && !liquidity.value().complete && round_trip &&
                  !round_trip.value().complete &&
                  round_trip.value().book_loss_value_wei.is_zero() &&
-                 target.value() == "/v1/markets/42" &&
+                 !tracked_shares && target.value() == "/v1/markets/42" &&
                  topic.value() == "predictOrderbook/42"
              ? 0
              : 1;

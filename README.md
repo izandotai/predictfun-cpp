@@ -33,14 +33,20 @@ The current SDK contains independently linkable authority layers:
   journal-before-publish transitions are durably synced by default, and
   restart recovery quarantines every nonterminal order until the host supplies
   a complete authenticated REST snapshot;
+- `predictfun::execution`: a host-facing durable order session that validates
+  and journals the deterministic hash before its one create attempt, records
+  explicit rejection or ambiguity, serializes private wallet events, and
+  completes bounded multi-page REST reconciliation after every wallet-stream
+  generation change;
 - deterministic YES-to-NO order-book derivation using integer ticks.
 
-P0 through P6 are implemented and pass the deterministic Debug and Release
+P0 through P6 are implemented and pass the 33/33 deterministic Debug and Release
 test matrices. P7 production hardening is in progress; durable recovery,
 shared REST budgets, reconnect-storm protection, property/adversarial tests,
 fault injection, sanitizer CI, a codec fuzzer, installed-package consumers and
-an explicitly gated BNB-testnet acceptance harness are present. Funded,
-caller-authorized operation evidence and the final API audit remain. The
+an explicitly gated BNB-testnet acceptance harness are present. The official
+API/schema audit and the durable host-facing execution composition are also
+complete. Funded, caller-authorized operation evidence remains. The
 optional mainnet API key is supplied by the caller and is emitted
 only as an `x-api-key` header; the SDK does not read environment files and
 rejects credentials in request targets.
@@ -158,6 +164,13 @@ The recovery example inspects an existing journal without any network or key:
 ```sh
 ./build/dev/predictfun_recovery_example ./runtime/orders.journal
 ```
+
+For a live host, prefer `predictfun::execution::DurableOrderSession` over
+manually composing mutation, journal and reconciliation calls. It guarantees
+that the deterministic order hash is durable before the only create attempt,
+and that a reconnected private stream stays quarantined until every bounded
+REST order page has been processed. See
+[`docs/DURABLE_ORDER_SESSION.md`](docs/DURABLE_ORDER_SESSION.md).
 
 ## Security boundary
 

@@ -84,6 +84,14 @@ reconciliation and ambiguous-submit quarantine pass the Debug suite. The live
 testnet acceptance scenario remains part of the final release matrix because
 it requires an explicitly funded caller-owned account.
 
+P7 now also supplies `predictfun::execution::DurableOrderSession`, the safe
+host composition of these P5 primitives. It writes the deterministic hash to
+the checksummed lifecycle journal before the single create attempt, persists
+known rejection and ambiguous outcomes, serializes private-event updates, and
+requires a bounded complete multi-page REST order snapshot after every private
+WebSocket generation change. This removes submit-before-journal and blind
+replay hazards without importing a signer, wallet, key loader or RPC path.
+
 ### P6: BNB-chain wallet operations - deterministic implementation complete
 
 - Typed JSON-RPC transport, chain-id validation and receipt tracking.
@@ -141,6 +149,7 @@ boundary for PMT without importing credentials, signing or mutation authority.
 - Fuzz/property tests for codecs, amount math and state machines.
 - ASan/UBSan/TSan where supported; Windows static-PE verification.
 - API reference, cookbooks and semver/package installation test.
+- Host-facing durable execution session and installed-package consumer test.
 
 Gate: clean Debug/Release builds and complete test matrix from a fresh clone.
 

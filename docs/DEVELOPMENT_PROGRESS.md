@@ -2,6 +2,27 @@
 
 Updated: 2026-08-14
 
+## 2026-08-14 - durable host-facing execution session
+
+- Added separately linkable `predictfun::execution`. Its durable session
+  validates the signed request, derives the exact 18-decimal share quantity,
+  and fsyncs the deterministic order hash before dispatching exactly one create
+  mutation.
+- Explicit venue/client rejection is now a terminal journal transition;
+  transport/server ambiguity remains quarantined and is never automatically
+  replayed.
+- Private wallet events, book-removal notices and host snapshots share one
+  Asio strand. A private-stream generation change first quarantines every
+  nonterminal order, then consumes every bounded REST order page before
+  releasing only records actually observed.
+- Added deterministic tests for BUY/SELL share semantics, acknowledged,
+  rejected and ambiguous submissions, invalid pre-dispatch requests, restart
+  recovery and complete multi-page reconciliation. Added a static authority
+  boundary plus an installed-package execution consumer.
+- Added `docs/DURABLE_ORDER_SESSION.md` as the host integration contract. The
+  layer owns no signer, wallet, environment reader, API credential or RPC
+  authority.
+
 ## 2026-08-14 - official schema and lifecycle parity
 
 - Re-audited every documented general-use REST route and all six public/private
@@ -102,9 +123,9 @@ Updated: 2026-08-14
 | P2 public WebSocket | complete | WSS codec/client/transport and `p2_boundary` tests |
 | P3 authentication/private read | complete | private REST, wallet WSS, reconciliation gate and `p3_boundary` tests |
 | P4 deterministic order builder | complete | official SDK/ethers golden vectors and local signer tests |
-| P5 trading/reconciliation | implementation complete | `trading`, `lifecycle`, match/order REST and `p5_boundary` tests |
+| P5 trading/reconciliation | implementation complete | `trading`, `lifecycle`, durable `execution`, match/order REST and authority-boundary tests |
 | P6 BNB wallet operations | implementation complete | deterministic transaction/approval gate complete; live testnet evidence pending |
-| P7 hardening/release | in progress | durable recovery, shared rate budgets, reconnect-storm protection, hostile-input testing and gated testnet acceptance harness implemented |
+| P7 hardening/release | in progress | durable host execution/recovery, shared rate budgets, reconnect-storm protection, hostile-input testing and gated testnet acceptance harness implemented |
 
 ## Completed P3 checklist
 
@@ -226,7 +247,7 @@ P7 durable recovery is implemented without integrating PMT:
 - [ ] Capture caller-authorized BNB testnet receipts and post-operation balance
   transitions for split, merge, convert and redeem.
 
-Current deterministic matrix: 31/31 Debug and 31/31 Release tests. The
+Current deterministic matrix: 33/33 Debug and 33/33 Release tests. The
 installed public and explicitly opted-in signer consumers also build and run.
 Official endpoint, WebSocket-topic and response-model coverage is tracked
 separately in `docs/OFFICIAL_API_COVERAGE.md`.

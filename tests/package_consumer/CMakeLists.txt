@@ -24,6 +24,7 @@ target_link_libraries(package_consumer
         predictfun::public_rest
         predictfun::public_wss
         predictfun::analysis
+        predictfun::execution
 )
 
 add_executable(package_signer_consumer signer.cpp)

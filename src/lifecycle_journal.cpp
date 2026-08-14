@@ -21,7 +21,8 @@
 namespace predictfun::lifecycle {
 namespace {
 
-constexpr std::array<char, 8U> file_magic{'P', 'F', 'J', 'R', 'N', 'L', '1', '\n'};
+constexpr std::array<char, 8U> file_magic{'P', 'F', 'J', 'R',
+                                          'N', 'L', '1', '\n'};
 constexpr std::uint8_t record_version = 1U;
 
 Error storage_error(std::string message, const std::filesystem::path &path) {
@@ -56,7 +57,8 @@ bool read_le(std::span<const std::uint8_t> input, std::size_t &offset,
 }
 
 bool append_string(std::vector<std::uint8_t> &out, std::string_view value) {
-  if (value.size() > std::numeric_limits<std::uint32_t>::max()) return false;
+  if (value.size() > std::numeric_limits<std::uint32_t>::max())
+    return false;
   append_le(out, static_cast<std::uint32_t>(value.size()));
   out.insert(out.end(), value.begin(), value.end());
   return true;
@@ -79,8 +81,7 @@ std::uint32_t crc32(std::span<const std::uint8_t> input) {
     crc ^= byte;
     for (unsigned bit = 0U; bit < 8U; ++bit)
       crc = (crc >> 1U) ^
-            (0xedb88320U &
-             (0U - static_cast<std::uint32_t>(crc & 1U)));
+            (0xedb88320U & (0U - static_cast<std::uint32_t>(crc & 1U)));
   }
   return ~crc;
 }
@@ -101,10 +102,12 @@ Result<std::vector<std::uint8_t>> encode(const TrackedOrder &order,
       !append_string(payload, order.amount_filled.to_string()) ||
       !append_string(payload, order.reason))
     return Error{ErrorCode::numeric_overflow,
-                 "lifecycle journal field exceeds uint32 length", {}};
+                 "lifecycle journal field exceeds uint32 length",
+                 {}};
   if (payload.size() > maximum)
     return Error{ErrorCode::body_too_large,
-                 "lifecycle journal record exceeds configured bound", {}};
+                 "lifecycle journal record exceeds configured bound",
+                 {}};
   return payload;
 }
 
@@ -112,11 +115,12 @@ Result<TrackedOrder> decode(std::span<const std::uint8_t> payload) {
   std::size_t offset = 0U;
   if (payload.size() < 4U || payload[offset++] != record_version)
     return Error{ErrorCode::journal_corrupt,
-                 "unsupported lifecycle journal record version", {}};
+                 "unsupported lifecycle journal record version",
+                 {}};
   const auto state_raw = payload[offset++];
   if (state_raw > static_cast<std::uint8_t>(OrderLifecycleState::unknown))
-    return Error{ErrorCode::journal_corrupt,
-                 "invalid lifecycle state in journal", {}};
+    return Error{
+        ErrorCode::journal_corrupt, "invalid lifecycle state in journal", {}};
   const bool reconciliation_required = payload[offset++] != 0U;
   const bool has_order_id = payload[offset++] != 0U;
   std::uint64_t generation = 0U;
@@ -133,20 +137,24 @@ Result<TrackedOrder> decode(std::span<const std::uint8_t> payload) {
       !read_string(payload, offset, amount) ||
       !read_string(payload, offset, amount_filled) ||
       !read_string(payload, offset, reason) || offset != payload.size())
-    return Error{ErrorCode::journal_corrupt,
-                 "malformed lifecycle journal record", {}};
+    return Error{
+        ErrorCode::journal_corrupt, "malformed lifecycle journal record", {}};
   auto parsed_amount = ExactDecimal::parse(amount);
   auto parsed_filled = ExactDecimal::parse(amount_filled);
   if (!parsed_amount || !parsed_filled)
-    return Error{ErrorCode::journal_corrupt,
-                 "invalid decimal in lifecycle journal", {}};
-  return TrackedOrder{
-      std::move(hash),
-      has_order_id ? std::optional<std::string>{std::move(order_id)}
-                   : std::nullopt,
-      std::move(parsed_amount.value()), std::move(parsed_filled.value()),
-      static_cast<OrderLifecycleState>(state_raw), reconciliation_required,
-      generation, timestamp, std::move(reason)};
+    return Error{
+        ErrorCode::journal_corrupt, "invalid decimal in lifecycle journal", {}};
+  return TrackedOrder{std::move(hash),
+                      has_order_id
+                          ? std::optional<std::string>{std::move(order_id)}
+                          : std::nullopt,
+                      std::move(parsed_amount.value()),
+                      std::move(parsed_filled.value()),
+                      static_cast<OrderLifecycleState>(state_raw),
+                      reconciliation_required,
+                      generation,
+                      timestamp,
+                      std::move(reason)};
 }
 
 bool write_all(std::ofstream &stream, std::span<const std::uint8_t> bytes) {
@@ -157,10 +165,10 @@ bool write_all(std::ofstream &stream, std::span<const std::uint8_t> bytes) {
 
 Result<bool> sync_file_to_stable_storage(const std::filesystem::path &path) {
 #if defined(_WIN32)
-  const auto handle = CreateFileW(
-      path.c_str(), GENERIC_WRITE,
-      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  const auto handle =
+      CreateFileW(path.c_str(), GENERIC_WRITE,
+                  FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                  nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
   if (handle == INVALID_HANDLE_VALUE)
     return storage_error("cannot open lifecycle journal for durable sync",
                          path);
@@ -197,21 +205,26 @@ Result<bool> OrderJournal::initialize() {
   std::error_code error;
   if (const auto parent = path_.parent_path(); !parent.empty())
     std::filesystem::create_directories(parent, error);
-  if (error) return storage_error("cannot create journal directory", path_);
+  if (error)
+    return storage_error("cannot create journal directory", path_);
 
   if (std::filesystem::exists(path_, error)) {
-    if (error) return storage_error("cannot inspect lifecycle journal", path_);
+    if (error)
+      return storage_error("cannot inspect lifecycle journal", path_);
     return true;
   }
   std::ofstream stream(path_, std::ios::binary | std::ios::out);
-  if (!stream) return storage_error("cannot create lifecycle journal", path_);
-  stream.write(file_magic.data(), static_cast<std::streamsize>(file_magic.size()));
+  if (!stream)
+    return storage_error("cannot create lifecycle journal", path_);
+  stream.write(file_magic.data(),
+               static_cast<std::streamsize>(file_magic.size()));
   stream.flush();
   if (!stream.good())
     return storage_error("cannot initialize lifecycle journal", path_);
   if (options_.flush_after_append) {
     auto synced = sync_file_to_stable_storage(path_);
-    if (!synced) return synced.error();
+    if (!synced)
+      return synced.error();
   }
   return true;
 }
@@ -222,21 +235,24 @@ Result<bool> OrderJournal::append(const TrackedOrder &order) {
 
 Result<bool> OrderJournal::append(const std::vector<TrackedOrder> &orders) {
   auto initialized = initialize();
-  if (!initialized) return initialized.error();
+  if (!initialized)
+    return initialized.error();
   std::ofstream stream(path_, std::ios::binary | std::ios::app);
-  if (!stream) return storage_error("cannot open lifecycle journal", path_);
+  if (!stream)
+    return storage_error("cannot open lifecycle journal", path_);
   for (const auto &order : orders) {
     auto encoded = encode(order, options_.maximum_record_bytes);
-    if (!encoded) return encoded.error();
+    if (!encoded)
+      return encoded.error();
     std::vector<std::uint8_t> header;
     header.reserve(8U);
-    append_le(header,
-              static_cast<std::uint32_t>(encoded.value().size()));
+    append_le(header, static_cast<std::uint32_t>(encoded.value().size()));
     append_le(header, crc32(encoded.value()));
     if (!write_all(stream, header) || !write_all(stream, encoded.value()))
       return storage_error("cannot append lifecycle journal record", path_);
   }
-  if (options_.flush_after_append) stream.flush();
+  if (options_.flush_after_append)
+    stream.flush();
   if (!stream.good())
     return storage_error("cannot flush lifecycle journal", path_);
   if (options_.flush_after_append) {
@@ -244,14 +260,16 @@ Result<bool> OrderJournal::append(const std::vector<TrackedOrder> &orders) {
     if (stream.fail())
       return storage_error("cannot close lifecycle journal", path_);
     auto synced = sync_file_to_stable_storage(path_);
-    if (!synced) return synced.error();
+    if (!synced)
+      return synced.error();
   }
   return true;
 }
 
 Result<JournalReplay> OrderJournal::replay() const {
   std::ifstream stream(path_, std::ios::binary);
-  if (!stream) return storage_error("cannot open lifecycle journal", path_);
+  if (!stream)
+    return storage_error("cannot open lifecycle journal", path_);
   std::array<char, file_magic.size()> magic{};
   stream.read(magic.data(), static_cast<std::streamsize>(magic.size()));
   if (stream.gcount() != static_cast<std::streamsize>(magic.size()) ||
@@ -266,7 +284,8 @@ Result<JournalReplay> OrderJournal::replay() const {
     stream.read(reinterpret_cast<char *>(header.data()),
                 static_cast<std::streamsize>(header.size()));
     const auto header_read = stream.gcount();
-    if (header_read == 0) break;
+    if (header_read == 0)
+      break;
     if (header_read != static_cast<std::streamsize>(header.size())) {
       replay.ignored_truncated_tail = true;
       break;
@@ -289,7 +308,8 @@ Result<JournalReplay> OrderJournal::replay() const {
     if (crc32(payload) != expected_crc)
       return corrupt("lifecycle journal checksum mismatch", path_);
     auto decoded = decode(payload);
-    if (!decoded) return corrupt(decoded.error().message, path_);
+    if (!decoded)
+      return corrupt(decoded.error().message, path_);
     latest.insert_or_assign(decoded.value().order_hash,
                             std::move(decoded.value()));
     ++replay.records_applied;
@@ -309,9 +329,11 @@ PersistentOrderTracker::open(std::filesystem::path path,
                              JournalOptions options) {
   OrderJournal journal(std::move(path), options);
   auto initialized = journal.initialize();
-  if (!initialized) return initialized.error();
+  if (!initialized)
+    return initialized.error();
   auto replay = journal.replay();
-  if (!replay) return replay.error();
+  if (!replay)
+    return replay.error();
   if (replay.value().ignored_truncated_tail) {
     std::error_code error;
     std::filesystem::resize_file(journal.path(), replay.value().valid_bytes,
@@ -322,7 +344,8 @@ PersistentOrderTracker::open(std::filesystem::path path,
   }
   OrderTracker tracker;
   auto restored = tracker.restore(replay.value().orders);
-  if (!restored) return restored.error();
+  if (!restored)
+    return restored.error();
   std::uint64_t generation = 1U;
   for (const auto &order : replay.value().orders)
     generation = std::max(generation, order.stream_generation + 1U);
@@ -330,11 +353,12 @@ PersistentOrderTracker::open(std::filesystem::path path,
   auto quarantined = tracker.snapshot();
   if (!quarantined.empty()) {
     auto persisted = journal.append(quarantined);
-    if (!persisted) return persisted.error();
+    if (!persisted)
+      return persisted.error();
   }
-  return PersistentOrderTracker{
-      std::move(journal), std::move(tracker), replay.value().records_applied,
-      replay.value().ignored_truncated_tail};
+  return PersistentOrderTracker{std::move(journal), std::move(tracker),
+                                replay.value().records_applied,
+                                replay.value().ignored_truncated_tail};
 }
 
 Result<TrackedOrder *>
@@ -342,21 +366,40 @@ PersistentOrderTracker::begin_submission(std::string hash,
                                          ExactDecimal amount) {
   auto next = tracker_;
   auto changed = next.begin_submission(hash, std::move(amount));
-  if (!changed) return changed.error();
+  if (!changed)
+    return changed.error();
   auto persisted = journal_.append(*changed.value());
-  if (!persisted) return persisted.error();
+  if (!persisted)
+    return persisted.error();
   tracker_ = std::move(next);
   return tracker_.find(hash);
 }
 
 Result<bool> PersistentOrderTracker::apply_create_outcome(
-    std::string_view hash,
-    const MutationOutcome<CreateOrderReceipt> &outcome) {
+    std::string_view hash, const MutationOutcome<CreateOrderReceipt> &outcome) {
   auto next = tracker_;
   auto changed = next.apply_create_outcome(hash, outcome);
-  if (!changed) return changed.error();
+  if (!changed)
+    return changed.error();
   auto persisted = journal_.append(*next.find(hash));
-  if (!persisted) return persisted.error();
+  if (!persisted)
+    return persisted.error();
+  tracker_ = std::move(next);
+  return true;
+}
+
+Result<bool>
+PersistentOrderTracker::mark_submission_rejected(std::string_view hash,
+                                                 const Error &error) {
+  auto next = tracker_;
+  auto changed = next.mark_submission_rejected(hash, error);
+  if (!changed)
+    return changed.error();
+  if (!changed.value())
+    return false;
+  auto persisted = journal_.append(*next.find(hash));
+  if (!persisted)
+    return persisted.error();
   tracker_ = std::move(next);
   return true;
 }
@@ -365,9 +408,11 @@ Result<bool>
 PersistentOrderTracker::apply_rest_order(const OrderRecord &order) {
   auto next = tracker_;
   auto changed = next.apply_rest_order(order);
-  if (!changed) return changed.error();
+  if (!changed)
+    return changed.error();
   auto persisted = journal_.append(*next.find(order.order.hash));
-  if (!persisted) return persisted.error();
+  if (!persisted)
+    return persisted.error();
   tracker_ = std::move(next);
   return true;
 }
@@ -376,20 +421,23 @@ Result<bool>
 PersistentOrderTracker::apply_wallet_event(const WalletEvent &event) {
   auto next = tracker_;
   auto changed = next.apply_wallet_event(event);
-  if (!changed) return changed.error();
+  if (!changed)
+    return changed.error();
   auto persisted = journal_.append(*next.find(event.order_hash));
-  if (!persisted) return persisted.error();
+  if (!persisted)
+    return persisted.error();
   tracker_ = std::move(next);
   return true;
 }
 
-Result<bool>
-PersistentOrderTracker::mark_book_removed(std::string_view hash) {
+Result<bool> PersistentOrderTracker::mark_book_removed(std::string_view hash) {
   auto next = tracker_;
   auto changed = next.mark_book_removed(hash);
-  if (!changed) return changed.error();
+  if (!changed)
+    return changed.error();
   auto persisted = journal_.append(*next.find(hash));
-  if (!persisted) return persisted.error();
+  if (!persisted)
+    return persisted.error();
   tracker_ = std::move(next);
   return true;
 }
@@ -399,7 +447,8 @@ Result<bool> PersistentOrderTracker::require_reconciliation(
   auto next = tracker_;
   next.require_reconciliation(stream_generation);
   auto persisted = journal_.append(next.snapshot());
-  if (!persisted) return persisted.error();
+  if (!persisted)
+    return persisted.error();
   tracker_ = std::move(next);
   return true;
 }
@@ -410,7 +459,8 @@ Result<ReconciliationReport> PersistentOrderTracker::reconcile(
   auto next = tracker_;
   auto report = next.reconcile(stream_generation, complete_order_snapshot);
   auto persisted = journal_.append(next.snapshot());
-  if (!persisted) return persisted.error();
+  if (!persisted)
+    return persisted.error();
   tracker_ = std::move(next);
   return report;
 }

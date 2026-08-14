@@ -151,6 +151,24 @@ Result<bool> OrderTracker::apply_create_outcome(
   return true;
 }
 
+Result<bool> OrderTracker::mark_submission_rejected(std::string_view hash,
+                                                    const Error &error) {
+  auto *tracked = find(hash);
+  if (!tracked)
+    return unknown(hash);
+  if (tracked->state == OrderLifecycleState::rejected)
+    return false;
+  if (tracked->state != OrderLifecycleState::submission_pending)
+    return Error{ErrorCode::protocol_error,
+                 "submission rejection conflicts with a later order state",
+                 "state"};
+  tracked->state = OrderLifecycleState::rejected;
+  tracked->reconciliation_required = false;
+  tracked->reason =
+      error.message.empty() ? "order submission rejected" : error.message;
+  return true;
+}
+
 Result<bool> OrderTracker::apply_rest_order(const OrderRecord &order) {
   auto *tracked = find(order.order.hash);
   if (!tracked)
