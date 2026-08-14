@@ -417,7 +417,14 @@ install(TARGETS ${PREDICTFUN_INSTALL_TARGETS}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
-install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+if(PREDICTFUN_BUILD_LOCAL_SIGNER)
+    install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+else()
+    install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        PATTERN "local_signer.hpp" EXCLUDE
+        PATTERN "local_transaction_signer.hpp" EXCLUDE
+    )
+endif()
 configure_package_config_file(
     cmake/predictfunConfig.cmake.in
     "${CMAKE_CURRENT_BINARY_DIR}/predictfunConfig.cmake"

@@ -66,6 +66,20 @@ cmake --build --preset dev
 ctest --preset dev
 ```
 
+Before publishing or tagging a release, run the isolated installation gate:
+
+```sh
+./scripts/verify-release.sh
+```
+
+It builds and tests a full Release package, installs it into a temporary
+prefix, and compiles/runs consumers against the installed `predictfun 0.1.0`
+package. It then repeats the installation with local signing disabled and
+proves that neither signer headers nor signer CMake targets are exported.
+Verified local dependency source trees are reused when the existing Release
+cache names them; a clean CI checkout instead downloads the immutable pinned
+archives. TLS verification is never disabled.
+
 The normal SDK build never enables fuzzing. On a Clang/libFuzzer host, the
 bounded codec target can be built and run explicitly:
 

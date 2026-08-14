@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.28)
 project(predictfun_package_consumer LANGUAGES CXX)
 
+option(PREDICTFUN_PACKAGE_CONSUMER_WITH_SIGNER
+       "Build the explicit local-signer package consumer" OFF)
+set(PREDICTFUN_PACKAGE_VERSION "0.1.0" CACHE STRING
+    "Exact installed predictfun package version required by this test")
+
 include(FetchContent)
 set(PREDICTFUN_BOOST_SOURCE_DIR "" CACHE PATH "Verified Boost 1.87 source")
 if(NOT PREDICTFUN_BOOST_SOURCE_DIR)
@@ -15,7 +20,7 @@ FetchContent_Declare(Boost
 )
 FetchContent_MakeAvailable(Boost)
 
-find_package(predictfun CONFIG REQUIRED)
+find_package(predictfun ${PREDICTFUN_PACKAGE_VERSION} EXACT CONFIG REQUIRED)
 
 add_executable(package_consumer main.cpp)
 target_compile_features(package_consumer PRIVATE cxx_std_20)
@@ -27,7 +32,19 @@ target_link_libraries(package_consumer
         predictfun::execution
 )
 
-add_executable(package_signer_consumer signer.cpp)
-target_compile_features(package_signer_consumer PRIVATE cxx_std_20)
-target_link_libraries(package_signer_consumer
-    PRIVATE predictfun::local_signer)
+if(PREDICTFUN_PACKAGE_CONSUMER_WITH_SIGNER)
+    if(NOT TARGET predictfun::local_signer)
+        message(FATAL_ERROR
+            "Signer consumer requested, but installed package has no local_signer target")
+    endif()
+    add_executable(package_signer_consumer signer.cpp)
+    target_compile_features(package_signer_consumer PRIVATE cxx_std_20)
+    target_link_libraries(package_signer_consumer
+        PRIVATE predictfun::local_signer)
+endif()
+
+enable_testing()
+add_test(NAME installed_public_consumer COMMAND package_consumer)
+if(PREDICTFUN_PACKAGE_CONSUMER_WITH_SIGNER)
+    add_test(NAME installed_signer_consumer COMMAND package_signer_consumer)
+endif()

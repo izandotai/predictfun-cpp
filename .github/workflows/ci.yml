@@ -13,12 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: lukka/get-cmake@latest
-      - name: Configure
-        run: cmake --preset release
-      - name: Build
-        run: cmake --build --preset release
-      - name: Test
-        run: ctest --preset release
+      - name: Verify isolated release and installed consumers
+        shell: bash
+        run: ./scripts/verify-release.sh
 
   sanitizer:
     runs-on: ubuntu-latest

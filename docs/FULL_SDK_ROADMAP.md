@@ -157,6 +157,14 @@ boundary for PMT without importing credentials, signing or mutation authority.
 
 Gate: clean Debug/Release builds and complete test matrix from a fresh clone.
 
+The installed-release portion of this gate is automated by
+`scripts/verify-release.sh`: it verifies exact semver discovery, a full package
+with an explicit signer consumer, and a read-only package whose installed
+headers and exported CMake targets contain no local signer. The same script is
+the manually triggered Ubuntu/Windows CI entry point. Remaining P7 release
+work is documentation/cookbook completion and final release/tag review, not
+PMT integration.
+
 ## Non-negotiable safety properties
 
 - No SDK module reads `.env` files. Secrets are injected by the host.

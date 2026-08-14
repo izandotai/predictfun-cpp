@@ -2,6 +2,26 @@
 
 Updated: 2026-08-14
 
+## 2026-08-14 - reproducible installed-release gate
+
+- Added `scripts/verify-release.sh` as the single isolated publication gate.
+  It builds/tests/installs both full-authority and read-only Release variants
+  in a disposable prefix, then builds and runs consumers only through the
+  installed CMake package.
+- Package consumers now require the exact advertised `0.1.0` version. The
+  signer consumer is an explicit opt-in and fails configuration when its
+  target is absent.
+- A read-only install now excludes both local-signer headers as well as signer
+  libraries/exports. The gate inspects the installed artifact and exported
+  target files before compiling its read-only consumer.
+- The manually triggered Ubuntu/Windows CI matrix now runs this same isolated
+  release gate. Local verification may reuse separately verified dependency
+  source trees from the existing Release cache; clean CI retains immutable
+  archive download and TLS verification.
+- Verified locally end to end: full package, explicit signer consumer,
+  read-only package, public consumer, exact semver discovery and 33/33 Release
+  tests all pass.
+
 ## 2026-08-14 - caller-authorized BNB-testnet position acceptance complete
 
 - Closed the remaining P6 live-evidence gate without linking the harness into
@@ -270,6 +290,8 @@ P7 durable recovery is implemented without integrating PMT:
   ASan/UBSan and a deterministic libFuzzer smoke run.
 - [x] Installed-package consumer matrix for public/read-only and explicit
   local-signer consumers.
+- [x] Isolated full/read-only install gate with exact semver discovery,
+  installed-artifact authority checks and the same manual CI entry point.
 - [x] Explicitly gated testnet scoped-approval harness with a default read-only
   probe, exact owner/scope confirmation, interactive secret input and
   append-only receipt/balance/approval evidence.
@@ -286,10 +308,11 @@ installed public and explicitly opted-in signer consumers also build and run.
 Official endpoint, WebSocket-topic and response-model coverage is tracked
 separately in `docs/OFFICIAL_API_COVERAGE.md`.
 
-Release verification also rebuilds from the pinned `izan-crypto` archive,
-not a mutable checkout. A read-only build emits neither
-`predictfun_local_signer` nor `izan_secp256k1`, while an installed-package
-consumer must opt into the signer target explicitly.
+Clean CI release verification rebuilds from the pinned `izan-crypto` archive,
+not a mutable checkout. Local verification may reuse a separately verified
+source recorded in the Release cache. A read-only install exports neither
+local-signer header nor signer target, while an installed-package consumer
+must opt into the signer target explicitly.
 
 An isolated BNB-testnet-only acceptance wallet exists in locally ignored
 operator configuration outside version control. The final executable has
