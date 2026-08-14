@@ -4,5 +4,6 @@
 /.cache/
 /.idea/
 /.vscode/
+/.env.local
 *.user
 *.suo
