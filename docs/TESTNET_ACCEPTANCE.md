@@ -10,14 +10,18 @@ does not call Predict's REST order API.
 - `probe` and `position-probe` are read-only and are the expected first
   commands for approvals and position operations respectively.
 - `approve` operates on one minimal approval scope, never blanket approvals.
+- `--approval-amount` binds an ERC-20 approval to an exact operation amount;
+  operator-style ERC-1155 approval remains Boolean by contract design.
 - An approval write requires all of `approve`, `--execute`, `--evidence`, and
   the exact owner/scope confirmation phrase printed by `probe`.
 - A position write requires all of `position-execute`, `--execute`,
   `--evidence`, and the exact operation/owner/condition/amount/token-evidence
   confirmation phrase printed by `position-probe`.
 - The signer address must equal `--owner`.
-- The private key is read with console echo disabled. It cannot be supplied by
-  a command-line option, file, environment variable, or API key.
+- By default the private key is read with console echo disabled. An operator
+  may instead name one local, regular, non-symlink secret file explicitly with
+  `--secret-env-file`; this exception exists only in this BNB-testnet harness.
+  Raw key arguments, process-environment keys and API keys remain unsupported.
 - A mutation is sent once. Timeout or lost response becomes an auditable
   unknown result; the tool never blindly resends it.
 - The evidence file never contains the private key or raw signed transaction.
@@ -69,13 +73,34 @@ Only after inspecting the probe output:
   --evidence runtime/predict-testnet-approval.jsonl
 ```
 
-The program then prompts for the EOA key with terminal echo disabled. It
+The program then prompts for the EOA key with terminal echo disabled. For an
+operator-authorized unattended testnet acceptance run, append
+`--secret-env-file .env.local`; the file must define
+`PREDICTFUN_BNB_TESTNET_PRIVATE_KEY` and may define the matching
+`PREDICTFUN_BNB_TESTNET_WALLET_ADDRESS`. The file path and key never enter
+evidence or diagnostics. The tool
 re-checks the selected approval, sends only missing steps, waits for receipts
 at a 300 ms polling interval, and performs a postflight balance/approval read.
 Already-satisfied scopes exit successfully without asking for a key or sending
 a transaction.
 
-There is intentionally no mainnet flag and no private-key flag.
+For a single split, prefer an exact bounded allowance:
+
+```sh
+./build/dev/predictfun_testnet_acceptance.exe approve \
+  --owner 0xYOUR_ADDRESS --scope split \
+  --approval-amount 1000000000000000000 \
+  --execute --confirm "EXACT PHRASE PRINTED BY PROBE" \
+  --evidence runtime/predict-testnet-split-approval.jsonl
+```
+
+The amount becomes part of the confirmation phrase. Postflight reporting uses
+that same bound rather than incorrectly requiring the default MaxInt256
+threshold.
+
+There is intentionally no mainnet flag and no raw private-key flag. The SDK
+signer and production transports still do not discover secrets from files or
+the process environment.
 
 ## 3. Read-only position-operation preflight
 
@@ -142,9 +167,11 @@ phrase emitted by `position-probe`:
 ```
 
 The tool revalidates the chain, balances, approvals and simulation before it
-asks for the key through the hidden console prompt. It then submits exactly one
-transaction, waits for its receipt, and records postflight balances. A lost or
-ambiguous response is never retried automatically.
+asks for the key through the hidden console prompt or reads the explicitly
+named local secret file. In both cases the derived signer address must equal
+`--owner`. It then submits exactly one transaction, waits for its receipt, and
+records postflight balances. A lost or ambiguous response is never retried
+automatically.
 
 ## Evidence schema
 
@@ -166,3 +193,19 @@ timestamped in Unix milliseconds and include:
 Evidence is append-only so an interrupted run retains every fact written before
 the interruption. A lost submission response remains visible as an unconfirmed
 transaction hash and must be reconciled rather than resent.
+
+## Completed live acceptance
+
+On 2026-08-14 an explicitly authorized isolated BNB-testnet wallet completed:
+
+- standard split, merge and winning-outcome redeem;
+- negative-risk split;
+- category conversion from market-798 NO to market-799 YES using the category
+  `questionIndex` bitmask; and
+- negative-risk redeem of the converted winning YES.
+
+Every operation passed `eth_call`, produced one confirmed receipt, and matched
+its expected before/after collateral and ERC-1155 balances. The conversion plus
+redeem path restored the original collateral amount. Exact transaction hashes
+are recorded in `DEVELOPMENT_PROGRESS.md`; the detailed JSONL evidence remains
+under ignored `runtime/` and is not part of the source repository.

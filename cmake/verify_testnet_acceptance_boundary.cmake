@@ -6,8 +6,8 @@ set(BOUNDARY "${TOOL}${SUPPORT}${HEADER}")
 string(TOLOWER "${BOUNDARY}" LOWER_BOUNDARY)
 
 foreach(FORBIDDEN
-    "getenv(" ".env" "--private-key" "--private-key-file" "mnemonic"
-    "std::ifstream" "bnb_mainnet" "chain id 56" "chain_id\\\":56"
+    "getenv(" "--private-key" "--private-key-file" "mnemonic"
+    "bnb_mainnet" "chain id 56" "chain_id\\\":56"
     "retry_after" "retry_count" "max_retries")
     string(FIND "${LOWER_BOUNDARY}" "${FORBIDDEN}" FOUND)
     if(NOT FOUND EQUAL -1)
@@ -27,6 +27,10 @@ foreach(REQUIRED
     "--execute"
     "--confirm"
     "--evidence"
+    "--secret-env-file"
+    "regular non-symlink"
+    "PREDICTFUN_BNB_TESTNET_PRIVATE_KEY"
+    "testnet wallet address does not match --owner"
     "interactive console"
     "blind_retry_performed")
     string(FIND "${BOUNDARY}" "${REQUIRED}" FOUND)
@@ -37,4 +41,4 @@ foreach(REQUIRED
 endforeach()
 
 message(STATUS
-    "Testnet acceptance boundary verified: testnet-only, explicit write gate, interactive signer, evidence, no blind retry")
+    "Testnet acceptance boundary verified: testnet-only, explicit write gate, operator-authorized local or interactive signer, evidence, no blind retry")

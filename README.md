@@ -46,7 +46,8 @@ shared REST budgets, reconnect-storm protection, property/adversarial tests,
 fault injection, sanitizer CI, a codec fuzzer, installed-package consumers and
 an explicitly gated BNB-testnet acceptance harness are present. The official
 API/schema audit and the durable host-facing execution composition are also
-complete. Funded, caller-authorized operation evidence remains. The
+complete. Caller-authorized BNB-testnet receipts and balance transitions now
+prove standard split/merge/redeem and negative-risk split/convert/redeem. The
 optional mainnet API key is supplied by the caller and is emitted
 only as an `x-api-key` header; the SDK does not read environment files and
 rejects credentials in request targets.

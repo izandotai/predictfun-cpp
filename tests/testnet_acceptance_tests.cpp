@@ -53,6 +53,21 @@ void test_exact_write_gate() {
                                     " trade-sell:neg-risk:regular");
 }
 
+void test_exact_approval_amount_is_bound_to_confirmation() {
+  auto options = parse(
+      {"approve", "--owner", "0x1111111111111111111111111111111111111111",
+       "--scope", "split", "--approval-amount", "1000000000000000000",
+       "--execute", "--evidence", "acceptance.jsonl", "--confirm", "wrong"});
+  CHECK(options.approval_amount &&
+        options.approval_amount->to_string() == "1000000000000000000");
+  options.confirmation = predictfun::tools::testnet_approval_confirmation(
+      options.owner, options.scope, options.approval_amount);
+  CHECK(options.confirmation ==
+        "APPROVE PREDICT BNB TESTNET 97 " + options.owner.to_string() +
+            " split:standard:regular amount=1000000000000000000");
+  CHECK(predictfun::tools::validate_testnet_write_gate(options));
+}
+
 void test_gate_requires_execute_and_evidence() {
   auto options =
       parse({"approve", "--owner", "0x1111111111111111111111111111111111111111",
@@ -64,6 +79,19 @@ void test_gate_requires_execute_and_evidence() {
   CHECK(!predictfun::tools::validate_testnet_write_gate(options));
   options.evidence_path = "acceptance.jsonl";
   CHECK(predictfun::tools::validate_testnet_write_gate(options));
+}
+
+void test_operator_authorized_secret_file_is_write_mode_only() {
+  auto approval = parse(
+      {"approve", "--owner", "0x1111111111111111111111111111111111111111",
+       "--scope", "split", "--execute", "--evidence", "acceptance.jsonl",
+       "--secret-env-file", ".env.local", "--confirm", "wrong"});
+  CHECK(approval.secret_env_file == std::filesystem::path{".env.local"});
+
+  const std::vector<std::string_view> read_only{
+      "probe", "--owner", "0x1111111111111111111111111111111111111111",
+      "--secret-env-file", ".env.local"};
+  CHECK(!predictfun::tools::parse_testnet_acceptance_arguments(read_only));
 }
 
 void test_invalid_or_ambiguous_arguments_fail_closed() {
@@ -201,16 +229,52 @@ void test_acceptance_readiness_explains_the_next_safe_action() {
             "position probe") != std::string::npos);
 }
 
+void test_position_gate_accepts_exact_bounded_allowance() {
+  using predictfun::ApprovalCheck;
+  using predictfun::ApprovalKind;
+  using predictfun::ApprovalStep;
+  using predictfun::EvmAddress;
+  using predictfun::Uint256;
+  using predictfun::tools::TestnetPositionOperation;
+  using predictfun::tools::TestnetPositionPlan;
+
+  const auto token =
+      EvmAddress::parse("0x1111111111111111111111111111111111111111")
+          .value();
+  const auto spender =
+      EvmAddress::parse("0x2222222222222222222222222222222222222222")
+          .value();
+  TestnetPositionPlan plan;
+  plan.operation = TestnetPositionOperation::split;
+  plan.amount = Uint256::parse("1000000000000000000").value();
+  std::vector<ApprovalCheck> approvals{ApprovalCheck{
+      ApprovalStep{"COLLATERAL", ApprovalKind::erc20_allowance, spender, token,
+                   "Approve", "Approve"},
+      false, Uint256::parse("1000000000000000000").value()}};
+  CHECK(predictfun::tools::position_approval_satisfies_plan(plan,
+                                                            approvals.front()));
+  CHECK(predictfun::tools::position_approvals_satisfy_plan(plan, approvals));
+  approvals.front().allowance = Uint256::parse("999999999999999999").value();
+  CHECK(!predictfun::tools::position_approval_satisfies_plan(
+      plan, approvals.front()));
+  CHECK(!predictfun::tools::position_approvals_satisfy_plan(plan, approvals));
+  approvals.front().satisfied = true;
+  CHECK(predictfun::tools::position_approvals_satisfy_plan(plan, approvals));
+}
+
 } // namespace
 
 int main() {
   test_probe_defaults_to_read_only();
   test_exact_write_gate();
+  test_exact_approval_amount_is_bound_to_confirmation();
   test_gate_requires_execute_and_evidence();
+  test_operator_authorized_secret_file_is_write_mode_only();
   test_invalid_or_ambiguous_arguments_fail_closed();
   test_position_probe_is_read_only_and_exact();
   test_position_write_gate_binds_every_operation_field();
   test_incomplete_position_plans_fail_closed();
   test_acceptance_readiness_explains_the_next_safe_action();
+  test_position_gate_accepts_exact_bounded_allowance();
   return failures == 0 ? 0 : 1;
 }

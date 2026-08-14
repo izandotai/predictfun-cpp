@@ -373,6 +373,16 @@ void test_transaction_execution_client() {
         std::string::npos);
   CHECK(transport->requests[3].body.find("eth_estimateGas") !=
         std::string::npos);
+  CHECK(transport->requests[3].body.find(
+            R"("from":"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf")") !=
+        std::string::npos);
+  CHECK(transport->requests[3].body.find(
+            R"("to":"0x1111111111111111111111111111111111111111")") !=
+        std::string::npos);
+  CHECK(transport->requests[3].body.find(R"("data":"0x12345678")") !=
+        std::string::npos);
+  CHECK(transport->requests[3].body.find(R"("value":"0x3039")") !=
+        std::string::npos);
 
   const RawTransaction raw{
       "0xf86a0784b2d05e0082cd149411111111111111111111111111111111111111118230"
@@ -504,7 +514,8 @@ void test_approval_checks_and_run() {
       owner, owner, {step, step}, RouteOptions{},
       [](const Hash32 &) -> Result<std::string> { return test_signature(); },
       ApprovalRunOptions{true, true,
-                         ReceiptWaitOptions{std::chrono::milliseconds{1}}},
+                         ReceiptWaitOptions{std::chrono::milliseconds{1}},
+                         std::nullopt},
       [&](const ApprovalProgress &update) {
         progress.push_back(update.state);
       },

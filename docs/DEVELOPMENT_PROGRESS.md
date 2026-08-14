@@ -2,6 +2,40 @@
 
 Updated: 2026-08-14
 
+## 2026-08-14 - caller-authorized BNB-testnet position acceptance complete
+
+- Closed the remaining P6 live-evidence gate without linking the harness into
+  PMT. Every write was preceded by a successful owner-bound `eth_call`, sent
+  exactly once, receipt-confirmed, and followed by fresh balance/approval
+  reads. No blind retry occurred.
+- Proved the standard track with split
+  (`0x6534a35563a9db4ee65bee2f9b85cc9f78969e8058acd7d379c009d4ed59705c`),
+  merge
+  (`0xf2d65b3d08293bb20c3a32976344f221bb9d47d3d3953070a67693a607880e06`)
+  and winning-outcome redeem
+  (`0xf0f2e1f3b2c0bb8832595b1b7919acc476b90bf60809f351ad29caebc4910d9c`).
+- Proved the negative-risk track with split
+  (`0x1b8339a0ba6adb6697721b3d7b5b140f6abf22c28daa2b42369699e6aba9a7a0`),
+  cross-market `convertPositions`
+  (`0x72de530d59bec240923b6f4cc51ca71a8b95a996c070fead9e97df4ecab02d11`)
+  and winning-outcome redeem
+  (`0xe544d3d85eedc2c2952f9e9d649fd21269cb19fb804df4ae895504bb68f1fe24`).
+  The convert burned one market-798 NO and minted one market-799 YES; the
+  subsequent redeem restored collateral from `999000000000000000000` to
+  `1000000000000000000000` base units. The losing market-798 YES remains as an
+  expected worthless resolved-token residue.
+- Added exact bounded ERC-20 approval amounts to the acceptance runner. A
+  one-operation allowance is included in the confirmation phrase, accepted as
+  sufficient for that operation, and visibly becomes missing after the
+  contract consumes it. The default SDK policy remains exchange-compatible
+  MaxInt256 when no exact amount is requested.
+- Fixed an optimized-build-only C++ argument-evaluation hazard in transaction
+  gas estimation by constructing RPC parameters before moving the transaction
+  into its completion handler.
+- Acceptance JSONL remains locally ignored operator evidence. Private keys,
+  secret-file paths and raw signed transactions are absent from documentation,
+  logs and version control.
+
 ## 2026-08-14 - durable host-facing execution session
 
 - Added separately linkable `predictfun::execution`. Its durable session
@@ -124,7 +158,7 @@ Updated: 2026-08-14
 | P3 authentication/private read | complete | private REST, wallet WSS, reconciliation gate and `p3_boundary` tests |
 | P4 deterministic order builder | complete | official SDK/ethers golden vectors and local signer tests |
 | P5 trading/reconciliation | implementation complete | `trading`, `lifecycle`, durable `execution`, match/order REST and authority-boundary tests |
-| P6 BNB wallet operations | implementation complete | deterministic transaction/approval gate complete; live testnet evidence pending |
+| P6 BNB wallet operations | complete | deterministic gates plus caller-authorized standard and neg-risk split/merge/convert/redeem receipts and post-balances |
 | P7 hardening/release | in progress | durable host execution/recovery, shared rate budgets, reconnect-storm protection, hostile-input testing and gated testnet acceptance harness implemented |
 
 ## Completed P3 checklist
@@ -211,7 +245,7 @@ P4 provenance and constraints:
   ambiguous submissions; never blind-retry a response-lost mutation.
 - [x] Reconcile submission outcome through bounded receipt polling and retain
   an explicit `outcome_unknown` result when confirmation cannot be proved.
-- [ ] Prove balance transitions and receipts on caller-authorized testnet.
+- [x] Prove balance transitions and receipts on caller-authorized testnet.
 
 ## Next implementation step
 
@@ -244,7 +278,7 @@ P7 durable recovery is implemented without integrating PMT:
 - [x] Extend the gated harness over split, merge, redeem and convert with exact
   operation-bound confirmation, balance/token evidence, mandatory `eth_call`
   preflight and a one-submission/no-blind-retry execution path.
-- [ ] Capture caller-authorized BNB testnet receipts and post-operation balance
+- [x] Capture caller-authorized BNB testnet receipts and post-operation balance
   transitions for split, merge, convert and redeem.
 
 Current deterministic matrix: 33/33 Debug and 33/33 Release tests. The
@@ -274,9 +308,12 @@ token ids, constructed the exact calldata and passed `eth_call` without sending
 a transaction. The probe identified only the minimal conditional-token
 collateral allowance as missing.
 
-Next: run the exact interactively confirmed, operation-scoped allowance, then
-capture split/merge/convert/redeem receipts and post-operation balance
-transitions. The acceptance tool deliberately refuses private keys supplied by
-arguments, files or environment variables; this final mutation gate therefore
-remains a caller-present testnet action and does not weaken the SDK authority
-boundary. No key material or live evidence is committed.
+The live acceptance gate is now closed for standard and negative-risk
+split/merge/convert/redeem paths. Following explicit operator authorization,
+the acceptance CLI may
+read its BNB-testnet key from one explicitly named local, ignored env file. It
+still refuses raw key arguments and process-environment keys, validates the
+derived signer against `--owner`, and never exposes the path or secret in
+evidence. This narrow harness-only exception does not weaken the SDK signer or
+production transport authority boundary. No key material or live evidence is
+committed.

@@ -8,8 +8,10 @@
 #include "predictfun/types/secret.hpp"
 
 #include <boost/asio/io_context.hpp>
+#include <boost/multiprecision/cpp_int.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -32,6 +34,7 @@
 namespace {
 
 using predictfun::ApprovalCheck;
+using predictfun::ApprovalKind;
 using predictfun::ApprovalProgress;
 using predictfun::ApprovalProgressState;
 using predictfun::ApprovalRunReport;
@@ -187,7 +190,115 @@ void print_error(std::string_view stage, const Error &error) {
             << " field=" << error.field << " message=" << error.message << '\n';
 }
 
-Result<predictfun::SecretString> read_private_key() {
+std::string_view trim_ascii(std::string_view value) {
+  while (!value.empty() &&
+         std::isspace(static_cast<unsigned char>(value.front())) != 0)
+    value.remove_prefix(1U);
+  while (!value.empty() &&
+         std::isspace(static_cast<unsigned char>(value.back())) != 0)
+    value.remove_suffix(1U);
+  return value;
+}
+
+Result<predictfun::SecretString>
+read_private_key_file(const std::filesystem::path &path,
+                      const predictfun::EvmAddress &expected_owner) {
+  constexpr std::uintmax_t maximum_secret_file_bytes = 64U * 1024U;
+  std::error_code issue;
+  const auto link_status = std::filesystem::symlink_status(path, issue);
+  if (issue || !std::filesystem::is_regular_file(link_status) ||
+      std::filesystem::is_symlink(link_status))
+    return Error{ErrorCode::invalid_argument,
+                 "secret env file must be an existing regular non-symlink file",
+                 "secret_env_file"};
+  const auto size = std::filesystem::file_size(path, issue);
+  if (issue || size == 0U || size > maximum_secret_file_bytes)
+    return Error{ErrorCode::invalid_argument,
+                 "secret env file has an invalid size", "secret_env_file"};
+
+  std::ifstream stream(path, std::ios::binary);
+  if (!stream)
+    return Error{ErrorCode::invalid_argument, "cannot open secret env file",
+                 "secret_env_file"};
+  std::string contents((std::istreambuf_iterator<char>(stream)),
+                       std::istreambuf_iterator<char>());
+  if (stream.bad()) {
+    predictfun::secure_erase(contents);
+    return Error{ErrorCode::invalid_argument, "cannot read secret env file",
+                 "secret_env_file"};
+  }
+
+  std::string private_key;
+  std::optional<predictfun::EvmAddress> declared_owner;
+  bool key_seen = false;
+  bool owner_seen = false;
+  std::size_t offset = 0U;
+  while (offset <= contents.size()) {
+    const auto end = contents.find('\n', offset);
+    auto line = trim_ascii(std::string_view{contents}.substr(
+        offset, end == std::string::npos ? std::string::npos : end - offset));
+    offset = end == std::string::npos ? contents.size() + 1U : end + 1U;
+    if (line.empty() || line.front() == '#') continue;
+    if (line.starts_with("export ")) line = trim_ascii(line.substr(7U));
+    const auto separator = line.find('=');
+    if (separator == std::string_view::npos) continue;
+    const auto name = trim_ascii(line.substr(0U, separator));
+    auto value = trim_ascii(line.substr(separator + 1U));
+    if (value.size() >= 2U &&
+        ((value.front() == '"' && value.back() == '"') ||
+         (value.front() == '\'' && value.back() == '\'')))
+      value = value.substr(1U, value.size() - 2U);
+
+    if (name == "PREDICTFUN_BNB_TESTNET_PRIVATE_KEY") {
+      if (key_seen) {
+        predictfun::secure_erase(private_key);
+        predictfun::secure_erase(contents);
+        return Error{ErrorCode::invalid_argument,
+                     "duplicate testnet private key entry",
+                     "secret_env_file"};
+      }
+      key_seen = true;
+      private_key.assign(value);
+    } else if (name == "PREDICTFUN_BNB_TESTNET_WALLET_ADDRESS") {
+      if (owner_seen) {
+        predictfun::secure_erase(private_key);
+        predictfun::secure_erase(contents);
+        return Error{ErrorCode::invalid_argument,
+                     "duplicate testnet wallet address entry",
+                     "secret_env_file"};
+      }
+      owner_seen = true;
+      auto parsed = predictfun::EvmAddress::parse(value);
+      if (!parsed) {
+        predictfun::secure_erase(private_key);
+        predictfun::secure_erase(contents);
+        return Error{ErrorCode::invalid_argument,
+                     "testnet wallet address entry is malformed",
+                     "secret_env_file"};
+      }
+      declared_owner = parsed.value();
+    }
+  }
+  predictfun::secure_erase(contents);
+  if (!key_seen || private_key.empty()) {
+    predictfun::secure_erase(private_key);
+    return Error{ErrorCode::invalid_argument,
+                 "testnet private key entry is missing or empty",
+                 "secret_env_file"};
+  }
+  if (declared_owner && *declared_owner != expected_owner) {
+    predictfun::secure_erase(private_key);
+    return Error{ErrorCode::invalid_argument,
+                 "testnet wallet address does not match --owner",
+                 "secret_env_file"};
+  }
+  return predictfun::SecretString{std::move(private_key)};
+}
+
+Result<predictfun::SecretString>
+read_private_key(const TestnetAcceptanceOptions &options) {
+  if (!options.secret_env_file.empty())
+    return read_private_key_file(options.secret_env_file, options.owner);
   std::cerr << "EOA private key (hidden; never stored): " << std::flush;
 #ifdef _WIN32
   const HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
@@ -250,7 +361,7 @@ void read_snapshot(ChainClient &client, const TestnetAcceptanceOptions &options,
       registry.value().usdt,
       predictfun::net::RequestContext::with_timeout(std::chrono::seconds{15}),
       [&client, collateral = registry.value().usdt, owner = options.owner,
-       steps,
+       steps, approval_amount = options.approval_amount,
        handler = std::move(handler)](Result<std::uint8_t> decimals) mutable {
         if (!decimals)
           return handler(decimals.error());
@@ -258,7 +369,8 @@ void read_snapshot(ChainClient &client, const TestnetAcceptanceOptions &options,
             collateral, owner,
             predictfun::net::RequestContext::with_timeout(
                 std::chrono::seconds{15}),
-            [&client, owner, steps, decimals = decimals.value(),
+            [&client, owner, steps, approval_amount,
+             decimals = decimals.value(),
              handler = std::move(handler)](Result<Uint256> balance) mutable {
               if (!balance)
                 return handler(balance.error());
@@ -267,10 +379,23 @@ void read_snapshot(ChainClient &client, const TestnetAcceptanceOptions &options,
                   predictfun::net::RequestContext::with_timeout(
                       std::chrono::seconds{15}),
                   [&client, owner, balance = std::move(balance.value()), decimals,
+                   approval_amount,
                    handler = std::move(handler)](
                       Result<std::vector<ApprovalCheck>> approvals) mutable {
                     if (!approvals)
                       return handler(approvals.error());
+                    if (approval_amount) {
+                      const boost::multiprecision::cpp_int required{
+                          approval_amount->to_string()};
+                      for (auto &check : approvals.value()) {
+                        if (check.step.kind != ApprovalKind::erc20_allowance ||
+                            !check.allowance)
+                          continue;
+                        const boost::multiprecision::cpp_int available{
+                            check.allowance->to_string()};
+                        check.satisfied = available >= required;
+                      }
+                    }
                     client.async_native_balance(
                         owner, predictfun::BlockTag::latest,
                         predictfun::net::RequestContext::with_timeout(
@@ -517,10 +642,15 @@ void record_position_snapshot(EvidenceWriter *evidence,
                           snapshot.token_balances[index].to_string() + '"');
   }
   for (const auto &check : snapshot.approvals) {
-    std::cout << "  " << check.step.id << " "
-              << (check.satisfied ? "SATISFIED" : "MISSING") << '\n';
+    auto effective_check = check;
+    effective_check.satisfied =
+        predictfun::tools::position_approval_satisfies_plan(plan, check);
+    std::cout << "  " << effective_check.step.id << " "
+              << (effective_check.satisfied ? "SATISFIED" : "MISSING")
+              << '\n';
     if (evidence)
-      evidence->write("approval_snapshot", approval_check_fields(check, phase));
+      evidence->write("approval_snapshot",
+                      approval_check_fields(effective_check, phase));
   }
 }
 
@@ -617,10 +747,9 @@ int run_position(const TestnetAcceptanceOptions &options) {
               }
               record_position_snapshot(evidence ? &*evidence : nullptr, plan,
                                        before.value(), "before");
-              const bool approvals_satisfied = std::all_of(
-                  before.value().approvals.begin(),
-                  before.value().approvals.end(),
-                  [](const ApprovalCheck &check) { return check.satisfied; });
+              const bool approvals_satisfied =
+                  predictfun::tools::position_approvals_satisfy_plan(
+                      plan, before.value().approvals);
 
               client.async_call(
                   predictfun::CallRequest{transaction.value().to,
@@ -666,7 +795,7 @@ int run_position(const TestnetAcceptanceOptions &options) {
                                         "\"reason\":\"approval_missing\"");
                       return;
                     }
-                    auto secret = read_private_key();
+                    auto secret = read_private_key(options);
                     if (!secret) {
                       print_error("signer input", secret.error());
                       return;
@@ -852,7 +981,8 @@ int run(const TestnetAcceptanceOptions &options) {
                                before.value());
               std::cout << "confirmation: "
                         << predictfun::tools::testnet_approval_confirmation(
-                               options.owner, options.scope)
+                               options.owner, options.scope,
+                               options.approval_amount)
                         << '\n';
               if (options.mode ==
                   predictfun::tools::TestnetAcceptanceMode::probe) {
@@ -877,7 +1007,7 @@ int run(const TestnetAcceptanceOptions &options) {
                 return;
               }
 
-              auto secret = read_private_key();
+              auto secret = read_private_key(options);
               if (!secret) {
                 print_error("signer input", secret.error());
                 if (evidence)
@@ -923,6 +1053,7 @@ int run(const TestnetAcceptanceOptions &options) {
               run_options.stop_on_error = true;
               run_options.receipt_wait.poll_interval =
                   std::chrono::milliseconds{300};
+              run_options.erc20_allowance_amount = options.approval_amount;
               client.async_run_approvals(
                   options.owner, options.owner, std::move(missing), {},
                   [signer_holder](const predictfun::Hash32 &digest) {

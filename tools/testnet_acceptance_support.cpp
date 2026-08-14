@@ -178,6 +178,15 @@ Result<TestnetAcceptanceOptions> parse_testnet_acceptance_arguments(
       auto amount = parse_uint256(value.value(), "amount");
       if (!amount) return amount.error();
       options.position->amount = amount.value();
+    } else if (flag == "--approval-amount") {
+      if (options.position)
+        return invalid("--approval-amount is not valid for position operations",
+                       "approval_amount");
+      auto amount = parse_uint256(value.value(), "approval_amount");
+      if (!amount || amount.value().is_zero())
+        return invalid("--approval-amount requires a positive uint256",
+                       "approval_amount");
+      options.approval_amount = amount.value();
     } else if (flag == "--index-set") {
       if (!options.position)
         return invalid("--index-set requires a position mode", "index_set");
@@ -192,6 +201,8 @@ Result<TestnetAcceptanceOptions> parse_testnet_acceptance_arguments(
       options.position->token_ids.push_back(token_id.value());
     } else if (flag == "--evidence") {
       options.evidence_path = std::filesystem::path{value.value()};
+    } else if (flag == "--secret-env-file") {
+      options.secret_env_file = std::filesystem::path{value.value()};
     } else if (flag == "--confirm") {
       options.confirmation = value.value();
     } else if (flag == "--rpc-host") {
@@ -222,6 +233,11 @@ Result<TestnetAcceptanceOptions> parse_testnet_acceptance_arguments(
     if (!valid) return valid.error();
     options.scope = position_approval_scope(*options.position);
   }
+  if (!options.secret_env_file.empty() &&
+      options.mode != TestnetAcceptanceMode::approve &&
+      options.mode != TestnetAcceptanceMode::position_execute)
+    return invalid("--secret-env-file is valid only for write modes",
+                   "secret_env_file");
   return options;
 }
 
@@ -252,9 +268,12 @@ std::string approval_scope_code(const ApprovalScope &scope) {
 }
 
 std::string testnet_approval_confirmation(const EvmAddress &owner,
-                                          const ApprovalScope &scope) {
-  return "APPROVE PREDICT BNB TESTNET 97 " + owner.to_string() + " " +
-         approval_scope_code(scope);
+                                          const ApprovalScope &scope,
+                                          const std::optional<Uint256> &amount) {
+  auto confirmation = "APPROVE PREDICT BNB TESTNET 97 " + owner.to_string() +
+                      " " + approval_scope_code(scope);
+  if (amount) confirmation += " amount=" + amount->to_string();
+  return confirmation;
 }
 
 Result<bool>
@@ -268,7 +287,8 @@ validate_testnet_write_gate(const TestnetAcceptanceOptions &options) {
   if (options.evidence_path.empty())
     return invalid("approve mode requires --evidence", "evidence");
   const auto expected =
-      testnet_approval_confirmation(options.owner, options.scope);
+      testnet_approval_confirmation(options.owner, options.scope,
+                                    options.approval_amount);
   if (options.confirmation != expected)
     return invalid("confirmation phrase does not match owner and scope",
                    "confirm");
@@ -296,6 +316,27 @@ ApprovalScope position_approval_scope(const TestnetPositionPlan &plan) {
                            ? true
                            : plan.is_neg_risk,
                        plan.is_yield_bearing, ApprovalTradeSide::both};
+}
+
+bool position_approval_satisfies_plan(const TestnetPositionPlan &plan,
+                                      const ApprovalCheck &approval) {
+  const auto at_least = [](const Uint256 &available, const Uint256 &required) {
+    const auto &left = available.to_string();
+    const auto &right = required.to_string();
+    return left.size() != right.size() ? left.size() > right.size()
+                                       : left >= right;
+  };
+  if (approval.satisfied) return true;
+  return approval.step.kind == ApprovalKind::erc20_allowance && plan.amount &&
+         approval.allowance && at_least(*approval.allowance, *plan.amount);
+}
+
+bool position_approvals_satisfy_plan(
+    const TestnetPositionPlan &plan, std::span<const ApprovalCheck> approvals) {
+  return std::all_of(approvals.begin(), approvals.end(),
+                     [&](const ApprovalCheck &approval) {
+                       return position_approval_satisfies_plan(plan, approval);
+                     });
 }
 
 std::string testnet_position_operation_code(const TestnetPositionPlan &plan) {
@@ -414,7 +455,8 @@ Read-only probe (default authority):
 
 Minimal scoped approval (writes only after every gate passes):
   predictfun_testnet_acceptance approve --owner 0x... --scope SCOPE \
-    --execute --confirm "PHRASE" --evidence FILE.jsonl [options]
+    [--approval-amount UINT256] --execute --confirm "PHRASE" \
+    --evidence FILE.jsonl [options]
 
 Read-only position preflight (prints exact transaction and confirmation):
   predictfun_testnet_acceptance position-probe --owner 0x... \
@@ -425,18 +467,25 @@ Execute one preflighted position transaction:
   predictfun_testnet_acceptance position-execute [same exact plan] \
     --execute --confirm "PHRASE" --evidence FILE.jsonl
 
+Operator-authorized local secret input for either write mode:
+  --secret-env-file .env.local
+
 SCOPE: trade-buy | trade-sell | split | merge | redeem | convert
 Options: --neg-risk --yield-bearing --rpc-host HOST --rpc-port PORT
-         --rpc-target /PATH --evidence FILE.jsonl
+         --rpc-target /PATH --evidence FILE.jsonl --secret-env-file FILE
+         --approval-amount UINT256
 
 Position fields: --operation split|merge|redeem|convert, --condition-id 0x...,
  --neg-risk-on-chain-id 0x..., --amount UINT256, --index-set UINT256, and
  repeated --token-id UINT256 values used for before/after balance evidence.
 
-Run probe first. It prints the exact confirmation phrase. Approve then reads
-the EOA key from an interactive hidden prompt. Keys are never accepted through
-arguments, files, environment variables, evidence, or diagnostics. The tool
-is hard-wired to BNB testnet chain id 97 and never blindly retries a write.)";
+Run probe first. It prints the exact confirmation phrase. Write modes read the
+EOA key from an interactive hidden prompt unless --secret-env-file is supplied.
+That file must contain PREDICTFUN_BNB_TESTNET_PRIVATE_KEY and may contain the
+matching PREDICTFUN_BNB_TESTNET_WALLET_ADDRESS. Raw key arguments and process
+environment variables remain unsupported. The key and file path never enter
+evidence or diagnostics. The tool is hard-wired to BNB testnet chain id 97 and
+never blindly retries a write.)";
 }
 
 } // namespace predictfun::tools

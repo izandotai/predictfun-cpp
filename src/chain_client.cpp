@@ -349,12 +349,17 @@ struct ChainClient::Impl : public std::enable_shared_from_this<Impl> {
                 if (!gas_price) return handler(gas_price.error());
                 auto value = abi::encode_quantity(transaction.value);
                 if (!value) return handler(value.error());
+                // Build the estimate request before moving the transaction
+                // into the completion handler. Function-argument evaluation
+                // order is not guaranteed; capturing transaction with
+                // std::move in the same call could otherwise empty calldata
+                // before std::format reads it in optimized builds.
+                auto estimate_params = std::format(
+                    R"([{{"from":"{}","to":"{}","data":"{}","value":"{}"}}])",
+                    from.to_string(), transaction.to.to_string(),
+                    transaction.data, value.value());
                 self->string_method(
-                    "eth_estimateGas",
-                    std::format(
-                        R"([{{"from":"{}","to":"{}","data":"{}","value":"{}"}}])",
-                        from.to_string(), transaction.to.to_string(),
-                        transaction.data, value.value()),
+                    "eth_estimateGas", std::move(estimate_params),
                     context,
                     [self, from, transaction = std::move(transaction),
                      nonce = std::move(nonce),
@@ -914,7 +919,7 @@ void ChainClient::async_run_approvals(
     }
 
     void submit(const ApprovalStep &step) {
-      auto direct = approval_transaction(step);
+      auto direct = approval_transaction(step, options.erc20_allowance_amount);
       if (!direct) return fail_current(step, direct.error());
       auto transaction = route_transaction(
           client->options.expected_chain_id, std::move(direct.value()), route);
@@ -972,7 +977,15 @@ void ChainClient::async_run_approvals(
             if (step.kind == ApprovalKind::erc20_allowance) {
               auto allowance = abi::decode_word_uint256(wire.value());
               if (!allowance) return self->submit(step);
-              satisfied = sufficient_exchange_allowance(allowance.value());
+              if (self->options.erc20_allowance_amount) {
+                const boost::multiprecision::cpp_int available{
+                    allowance.value().to_string()};
+                const boost::multiprecision::cpp_int required{
+                    self->options.erc20_allowance_amount->to_string()};
+                satisfied = available >= required;
+              } else {
+                satisfied = sufficient_exchange_allowance(allowance.value());
+              }
             } else {
               auto approved = abi::decode_word_bool(wire.value());
               if (!approved) return self->submit(step);

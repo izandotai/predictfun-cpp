@@ -159,6 +159,9 @@ struct ApprovalRunOptions {
   bool skip_satisfied{true};
   bool stop_on_error{true};
   ReceiptWaitOptions receipt_wait;
+  // When present, ERC-20 approval checks and writes are bounded to this exact
+  // amount. The default preserves the exchange-compatible MaxInt256 policy.
+  std::optional<Uint256> erc20_allowance_amount;
 };
 
 struct ApprovalRunReport {

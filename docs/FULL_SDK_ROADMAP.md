@@ -92,7 +92,7 @@ requires a bounded complete multi-page REST order snapshot after every private
 WebSocket generation change. This removes submit-before-journal and blind
 replay hazards without importing a signer, wallet, key loader or RPC path.
 
-### P6: BNB-chain wallet operations - deterministic implementation complete
+### P6: BNB-chain wallet operations - complete
 
 - Typed JSON-RPC transport, chain-id validation and receipt tracking.
 - Official contract addresses/ABIs with versioned provenance.
@@ -108,27 +108,32 @@ The deterministic implementation gate is complete: chain validation,
 balance/allowance reads, operation-scoped approval checks/runs, EIP-155 legacy
 transaction signing, gas/nonce population, raw submission, ambiguous-response
 reconciliation, receipt waiting and EOA/Predict Account routing pass the local
-Debug suite. Live testnet receipt and post-balance evidence remains in the
-caller-authorized final release matrix.
+Debug suite. Caller-authorized BNB-testnet receipts and post-balance evidence
+now cover standard split/merge/redeem and negative-risk
+split/convert/redeem. The convert proof burns the selected market NO, mints the
+corresponding YES in the other category market, and then redeems that winning
+YES to restore the original collateral amount.
 
 The P7 acceptance harness now provides BNB-testnet-only, default-read-only
 approval and position-operation probes plus exact owner/scope/operation-gated
 approval and split/merge/redeem/convert runners. Position probes bind public
 condition/category identifiers, exact amounts and token-balance evidence into
 the confirmation phrase and require a successful `eth_call` before any write.
-The harness accepts secrets only from an interactive hidden prompt, records
-receipts and before/after balances/approvals, and never blind-retries an
-ambiguous submission. Actual funded testnet evidence remains caller-authorized.
+The harness accepts secrets from an interactive hidden prompt or an explicitly
+named, operator-authorized local secret file that is confined to the chain-97
+acceptance executable. It records receipts and before/after balances/approvals
+and never blind-retries an ambiguous submission. Raw key arguments, automatic
+secret discovery and SDK-level file loading remain forbidden.
 
 The acceptance wallet is deliberately kept outside the repository. Live
 read-only probes have validated BNB testnet chain id 97, funded native BNB,
 `1000000000000000000000` registered test-collateral base units at 18 decimals,
-and current market/orderbook/category REST reads. A funded standard split probe
-has also bound the exact public condition and outcome-token ids, constructed
-the transaction and passed `eth_call`. The remaining write prerequisite is the
-minimal operation-scoped allowance reported by the probe. No unofficial faucet,
-arbitrary mint call, embedded credential or non-interactive key-loading path is
-introduced to bypass the caller-present acceptance gate.
+and current market/orderbook/category REST reads. The completed acceptance run
+used exact amount-bound ERC-20 allowances where possible, mandatory `eth_call`
+preflight, one submission per mutation, receipt reconciliation and fresh
+postflight balances. Locally ignored evidence retains the audit trail without
+committing secrets or operator artifacts. No unofficial faucet, arbitrary mint
+call or embedded credential was introduced.
 
 P7 also exposes exact read-only executable-liquidity analysis as a separately
 linkable target. Its BTC 5m/15m probe selects the current epoch-derived market,

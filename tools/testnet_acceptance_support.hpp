@@ -40,6 +40,8 @@ struct TestnetAcceptanceOptions {
   std::optional<TestnetPositionPlan> position;
   RpcEndpoint endpoint{default_rpc_endpoint(ChainId::bnb_testnet)};
   std::filesystem::path evidence_path;
+  std::filesystem::path secret_env_file;
+  std::optional<Uint256> approval_amount;
   std::string confirmation;
   bool execute{false};
   bool help{false};
@@ -71,13 +73,20 @@ parse_testnet_acceptance_arguments(std::span<const std::string_view> arguments);
 
 [[nodiscard]] std::string
 testnet_approval_confirmation(const EvmAddress &owner,
-                              const ApprovalScope &scope);
+                              const ApprovalScope &scope,
+                              const std::optional<Uint256> &amount = std::nullopt);
 
 [[nodiscard]] Result<bool>
 validate_testnet_write_gate(const TestnetAcceptanceOptions &options);
 
 [[nodiscard]] ApprovalScope
 position_approval_scope(const TestnetPositionPlan &plan);
+
+[[nodiscard]] bool position_approvals_satisfy_plan(
+    const TestnetPositionPlan &plan, std::span<const ApprovalCheck> approvals);
+
+[[nodiscard]] bool position_approval_satisfies_plan(
+    const TestnetPositionPlan &plan, const ApprovalCheck &approval);
 
 [[nodiscard]] std::string
 testnet_position_operation_code(const TestnetPositionPlan &plan);
