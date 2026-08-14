@@ -1,6 +1,7 @@
 #pragma once
 
 #include "predictfun/types/category.hpp"
+#include "predictfun/types/discovery.hpp"
 #include "predictfun/types/error.hpp"
 #include "predictfun/types/market.hpp"
 #include "predictfun/types/match.hpp"
@@ -17,6 +18,8 @@ struct DecodeLimits {
   std::size_t max_body_bytes{2U * 1024U * 1024U};
   std::size_t max_markets{1'000U};
   std::size_t max_categories{1'000U};
+  std::size_t max_tags{10'000U};
+  std::size_t max_search_results_per_type{25U};
   std::size_t max_outcomes_per_market{256U};
   std::size_t max_book_levels_per_side{20'000U};
   std::size_t max_timeseries_points{100'000U};
@@ -58,5 +61,19 @@ decode_latest_timeseries_response(std::string_view json,
 [[nodiscard]] Result<MatchesPage>
 decode_matches_response(std::string_view json,
                         const DecodeLimits &limits = {});
+
+[[nodiscard]] Result<std::vector<Tag>>
+decode_tags_response(std::string_view json, const DecodeLimits &limits = {});
+
+[[nodiscard]] Result<MarketStatistics>
+decode_market_statistics_response(std::string_view json,
+                                  const DecodeLimits &limits = {});
+
+[[nodiscard]] Result<std::optional<MarketLastSale>>
+decode_market_last_sale_response(std::string_view json,
+                                 const DecodeLimits &limits = {});
+
+[[nodiscard]] Result<SearchResults>
+decode_search_response(std::string_view json, const DecodeLimits &limits = {});
 
 } // namespace predictfun::codec

@@ -146,6 +146,100 @@ void test_protocol_targets() {
   CHECK(matches_target);
   CHECK(matches_target && matches_target.value() ==
       "/v1/orders/matches?first=20&after=cursor%2B%2F%3D&category=crypto&marketId=42&minValueUsdtWei=1000&signerAddress=0x1111111111111111111111111111111111111111&isSignerMaker=true");
+
+  CHECK(protocol::tags_target().value() == "/v1/tags");
+  CHECK(protocol::market_statistics_target(predictfun::MarketId{42U}).value() ==
+        "/v1/markets/42/stats");
+  CHECK(protocol::market_last_sale_target(predictfun::MarketId{42U}).value() ==
+        "/v1/markets/42/last-sale");
+
+  SearchQuery search{"BTC up/down", false, 25U};
+  const auto search_target = protocol::search_target(search);
+  CHECK(search_target);
+  CHECK(search_target && search_target.value() ==
+      "/v1/search?query=BTC%20up%2Fdown&includeResolved=false&limit=25");
+  search.limit = 26U;
+  CHECK(!protocol::search_target(search));
+
+  const auto address = predictfun::EvmAddress::parse(
+      "0x1111111111111111111111111111111111111111").value();
+  AddressPositionsQuery positions;
+  positions.first = 25U;
+  positions.after = "next+/=";
+  positions.market_id = predictfun::MarketId{42U};
+  positions.is_resolved = false;
+  positions.sort = "RETURN_DESC";
+  const auto positions_target =
+      protocol::address_positions_target(address, positions);
+  CHECK(positions_target);
+  CHECK(positions_target && positions_target.value() ==
+      "/v1/positions/0x1111111111111111111111111111111111111111?first=25&after=next%2B%2F%3D&marketId=42&isResolved=false&sort=RETURN_DESC");
+  positions.sort = "NOT_A_REAL_SORT";
+  CHECK(!protocol::address_positions_target(address, positions));
+}
+
+void test_discovery_clients() {
+  boost::asio::io_context io;
+  auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
+  transport->push(response(
+      200, R"({"success":true,"data":[{"id":"9","name":"BTC"}]})"));
+  transport->push(response(
+      200, R"({"success":true,"data":{"totalLiquidityUsd":"100.5","volumeTotalUsd":"200","volume24hUsd":"30"}})"));
+  transport->push(response(200,
+                           R"({"success":true,"data":null})"));
+  transport->push(response(
+      200, R"({"success":true,"data":{"categories":[],"markets":[]}})"));
+  transport->push(response(
+      200, R"({"success":true,"cursor":"next","data":[]})"));
+
+  predictfun::public_rest::PublicRestClient client(io.get_executor(),
+                                                   transport);
+  std::optional<Result<std::vector<predictfun::Tag>>> tags;
+  std::optional<Result<predictfun::MarketStatistics>> stats;
+  std::optional<Result<std::optional<predictfun::MarketLastSale>>> sale;
+  std::optional<Result<predictfun::SearchResults>> search;
+  std::optional<Result<predictfun::PositionsPage>> positions;
+  const auto timeout = [] {
+    return RequestContext::with_timeout(std::chrono::seconds{1});
+  };
+  client.async_get_tags(timeout(), [&](auto result) {
+    tags.emplace(std::move(result));
+  });
+  client.async_get_market_statistics(
+      predictfun::MarketId{42U}, timeout(), [&](auto result) {
+        stats.emplace(std::move(result));
+      });
+  client.async_get_market_last_sale(
+      predictfun::MarketId{42U}, timeout(), [&](auto result) {
+        sale.emplace(std::move(result));
+      });
+  client.async_search({"BTC", false, 10U}, timeout(), [&](auto result) {
+    search.emplace(std::move(result));
+  });
+  const auto address = predictfun::EvmAddress::parse(
+      "0x1111111111111111111111111111111111111111").value();
+  client.async_get_positions_by_address(
+      address, {}, timeout(), [&](auto result) {
+        positions.emplace(std::move(result));
+      });
+  io.run();
+
+  CHECK(tags && *tags && tags->value().size() == 1U);
+  CHECK(stats && *stats &&
+        stats->value().total_liquidity_usd.to_string() == "100.5");
+  CHECK(sale && *sale && !sale->value().has_value());
+  CHECK(search && *search && search->value().markets.empty());
+  CHECK(positions && *positions && positions->value().positions.empty());
+  CHECK(transport->requests.size() == 5U);
+  if (transport->requests.size() == 5U) {
+    CHECK(transport->requests[0].target == "/v1/tags");
+    CHECK(transport->requests[1].target == "/v1/markets/42/stats");
+    CHECK(transport->requests[2].target == "/v1/markets/42/last-sale");
+    CHECK(transport->requests[3].target ==
+          "/v1/search?query=BTC&includeResolved=false&limit=10");
+    CHECK(transport->requests[4].target ==
+          "/v1/positions/0x1111111111111111111111111111111111111111");
+  }
 }
 
 void test_matches_codec_and_client() {
@@ -455,6 +549,7 @@ int main() {
   test_cancel_during_rate_wait();
   test_shared_limiter_propagates_server_cooldown();
   test_matches_codec_and_client();
+  test_discovery_clients();
 
   if (failures != 0) {
     std::cerr << failures << " test assertion(s) failed\n";

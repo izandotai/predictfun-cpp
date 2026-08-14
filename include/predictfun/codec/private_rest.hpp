@@ -7,6 +7,12 @@
 
 namespace predictfun::codec {
 
+[[nodiscard]] Result<std::string>
+encode_referral_request(std::string_view referral_code);
+[[nodiscard]] Result<bool>
+decode_referral_response(std::string_view json,
+                         const DecodeLimits &limits = {});
+
 [[nodiscard]] Result<Account>
 decode_account_response(std::string_view json, const DecodeLimits &limits = {});
 [[nodiscard]] Result<PositionsPage>

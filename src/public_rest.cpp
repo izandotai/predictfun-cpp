@@ -1,5 +1,7 @@
 #include "predictfun/public_rest/client.hpp"
 
+#include "predictfun/codec/private_rest.hpp"
+
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/steady_timer.hpp>
 
@@ -91,6 +93,12 @@ Error http_error(ErrorCode code, int status, std::string message,
   error.retry_after_ms =
       static_cast<std::uint64_t>(std::max<std::int64_t>(0, retry.count()));
   return error;
+}
+
+bool supported_position_sort(std::string_view value) {
+  return value == "AMOUNT_DESC" || value == "EVENT_BLOCK_ASC" ||
+         value == "EVENT_BLOCK_DESC" || value == "SHARES_VALUE_DESC" ||
+         value == "RETURN_DESC";
 }
 
 } // namespace
@@ -198,6 +206,70 @@ Result<std::string> matches_target(const MatchesQuery &query) {
   if (query.is_signer_maker)
     add_query(target, "isSignerMaker",
               *query.is_signer_maker ? "true" : "false");
+  return target;
+}
+
+Result<std::string> tags_target() { return std::string{"/v1/tags"}; }
+
+Result<std::string> market_statistics_target(MarketId market_id) {
+  auto market = market_target(market_id);
+  if (!market)
+    return market.error();
+  return market.value() + "/stats";
+}
+
+Result<std::string> market_last_sale_target(MarketId market_id) {
+  auto market = market_target(market_id);
+  if (!market)
+    return market.error();
+  return market.value() + "/last-sale";
+}
+
+Result<std::string> search_target(const SearchQuery &query) {
+  if (query.query.empty() || query.query.size() > 256U)
+    return Error{ErrorCode::invalid_argument,
+                 "search query must contain between 1 and 256 bytes",
+                 "query"};
+  if (query.limit && (*query.limit == 0U || *query.limit > 25U))
+    return Error{ErrorCode::invalid_argument,
+                 "search limit must be between 1 and 25", "limit"};
+  auto target = std::string{"/v1/search"};
+  add_query(target, "query", query.query);
+  if (query.include_resolved)
+    add_query(target, "includeResolved",
+              *query.include_resolved ? "true" : "false");
+  if (query.limit)
+    add_query(target, "limit", std::to_string(*query.limit));
+  return target;
+}
+
+Result<std::string>
+address_positions_target(const EvmAddress &address,
+                         const AddressPositionsQuery &query) {
+  if (address.empty())
+    return Error{ErrorCode::invalid_argument,
+                 "position address must not be zero", "address"};
+  if (query.first && (*query.first == 0U || *query.first > 1'000U))
+    return Error{ErrorCode::invalid_argument,
+                 "first must be between 1 and 1000", "first"};
+  if (query.market_id && query.market_id->value == 0U)
+    return Error{ErrorCode::invalid_argument,
+                 "market id must be positive", "market_id"};
+  if (query.sort && !supported_position_sort(*query.sort))
+    return Error{ErrorCode::invalid_argument,
+                 "unsupported position sort", "sort"};
+
+  auto target = "/v1/positions/" + address.to_string();
+  if (query.first)
+    add_query(target, "first", std::to_string(*query.first));
+  if (query.after)
+    add_query(target, "after", *query.after);
+  if (query.market_id)
+    add_query(target, "marketId", std::to_string(query.market_id->value));
+  if (query.is_resolved)
+    add_query(target, "isResolved", *query.is_resolved ? "true" : "false");
+  if (query.sort)
+    add_query(target, "sort", *query.sort);
   return target;
 }
 
@@ -507,6 +579,78 @@ void PublicRestClient::async_get_matches(MatchesQuery query,
                if (!raw) return handler(raw.error());
                handler(codec::decode_matches_response(raw.value().body,
                                                        limits));
+             });
+}
+
+void PublicRestClient::async_get_tags(net::RequestContext context,
+                                      Handler<std::vector<Tag>> handler) {
+  const auto limits = impl_->options.decode_limits;
+  impl_->get("tags", protocol::tags_target(), std::move(context),
+             [handler = std::move(handler),
+              limits](Result<net::HttpResponse> raw) mutable {
+               if (!raw)
+                 return handler(raw.error());
+               handler(codec::decode_tags_response(raw.value().body, limits));
+             });
+}
+
+void PublicRestClient::async_get_market_statistics(
+    MarketId market_id, net::RequestContext context,
+    Handler<MarketStatistics> handler) {
+  const auto limits = impl_->options.decode_limits;
+  impl_->get("market_stats", protocol::market_statistics_target(market_id),
+             std::move(context),
+             [handler = std::move(handler),
+              limits](Result<net::HttpResponse> raw) mutable {
+               if (!raw)
+                 return handler(raw.error());
+               handler(codec::decode_market_statistics_response(
+                   raw.value().body, limits));
+             });
+}
+
+void PublicRestClient::async_get_market_last_sale(
+    MarketId market_id, net::RequestContext context,
+    Handler<std::optional<MarketLastSale>> handler) {
+  const auto limits = impl_->options.decode_limits;
+  impl_->get("market_last_sale",
+             protocol::market_last_sale_target(market_id), std::move(context),
+             [handler = std::move(handler),
+              limits](Result<net::HttpResponse> raw) mutable {
+               if (!raw)
+                 return handler(raw.error());
+               handler(codec::decode_market_last_sale_response(
+                   raw.value().body, limits));
+             });
+}
+
+void PublicRestClient::async_search(SearchQuery query,
+                                    net::RequestContext context,
+                                    Handler<SearchResults> handler) {
+  const auto limits = impl_->options.decode_limits;
+  impl_->get("search", protocol::search_target(query), std::move(context),
+             [handler = std::move(handler),
+              limits](Result<net::HttpResponse> raw) mutable {
+               if (!raw)
+                 return handler(raw.error());
+               handler(codec::decode_search_response(raw.value().body,
+                                                       limits));
+             });
+}
+
+void PublicRestClient::async_get_positions_by_address(
+    EvmAddress address, AddressPositionsQuery query,
+    net::RequestContext context, Handler<PositionsPage> handler) {
+  const auto limits = impl_->options.decode_limits;
+  impl_->get("address_positions",
+             protocol::address_positions_target(address, query),
+             std::move(context),
+             [handler = std::move(handler),
+              limits](Result<net::HttpResponse> raw) mutable {
+               if (!raw)
+                 return handler(raw.error());
+               handler(codec::decode_positions_response(raw.value().body,
+                                                          limits));
              });
 }
 

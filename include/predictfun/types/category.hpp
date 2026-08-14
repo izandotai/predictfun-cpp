@@ -11,12 +11,23 @@ namespace predictfun {
 
 enum class CategoryStatus { open, resolved, removed, unknown };
 
+// Tag ids are bigint strings in the wire schema. Keep them as text so the SDK
+// never truncates identifiers that exceed a native integer.
+struct Tag {
+  std::string id;
+  std::string name;
+  std::optional<std::int32_t> level;
+  std::optional<std::string> parent_id;
+  std::optional<std::int32_t> maker_rebate_bps;
+};
+
 struct Category {
   std::uint64_t id{0};
   std::string slug;
   std::string title;
   std::optional<std::string> short_title;
   std::optional<std::string> description;
+  std::optional<std::string> image_url;
   std::optional<std::string> starts_at;
   std::optional<std::string> ends_at;
   std::optional<std::string> created_at;
@@ -29,6 +40,7 @@ struct Category {
   bool is_yield_bearing{false};
   bool is_visible{false};
   EnumValue<CategoryStatus> status;
+  std::vector<Tag> tags;
   std::vector<Market> markets;
 };
 

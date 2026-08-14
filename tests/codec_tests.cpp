@@ -348,6 +348,103 @@ void test_category_and_timeseries_responses() {
   CHECK(bounded.error().code == predictfun::ErrorCode::too_many_items);
 }
 
+void test_discovery_responses() {
+  constexpr auto tags_json = R"({
+    "success": true,
+    "data": [{
+      "id": "18446744073709551616000000000000000000",
+      "name": "Crypto",
+      "level": 2,
+      "parentId": null,
+      "makerRebateBps": 15
+    }]
+  })";
+  auto tags = predictfun::codec::decode_tags_response(tags_json);
+  CHECK(tags);
+  CHECK(tags && tags.value().size() == 1U);
+  CHECK(tags && tags.value()[0].id ==
+                    "18446744073709551616000000000000000000");
+  CHECK(tags && tags.value()[0].maker_rebate_bps == 15);
+
+  constexpr auto stats_json = R"({
+    "success": true,
+    "data": {
+      "totalLiquidityUsd": "12345678901234567890.125",
+      "volumeTotalUsd": 456.75,
+      "volume24hUsd": "12.50"
+    }
+  })";
+  auto stats =
+      predictfun::codec::decode_market_statistics_response(stats_json);
+  CHECK(stats);
+  CHECK(stats && stats.value().total_liquidity_usd.to_string() ==
+                     "12345678901234567890.125");
+  CHECK(stats && stats.value().volume_total_usd.to_string() == "456.75");
+
+  constexpr auto sale_json = R"({
+    "success": true,
+    "data": {
+      "quoteType": "Ask",
+      "outcome": "Yes",
+      "priceInCurrency": "0.625",
+      "strategy": "LIMIT"
+    }
+  })";
+  auto sale = predictfun::codec::decode_market_last_sale_response(sale_json);
+  CHECK(sale);
+  CHECK(sale && sale.value().has_value());
+  CHECK(sale && sale.value() &&
+        sale.value()->quote_type.value == predictfun::LastSaleQuoteType::ask);
+  CHECK(sale && sale.value() &&
+        sale.value()->price_in_currency.to_string() == "0.625");
+  auto no_sale = predictfun::codec::decode_market_last_sale_response(
+      R"({"success":true,"data":null})");
+  CHECK(no_sale);
+  CHECK(no_sale && !no_sale.value().has_value());
+
+  constexpr auto search_json = R"({
+    "success": true,
+    "data": {
+      "categories": [{
+        "id": 8,
+        "slug": "crypto",
+        "title": "Crypto",
+        "imageUrl": "https://example.invalid/crypto.png",
+        "isNegRisk": false,
+        "isYieldBearing": false,
+        "isVisible": true,
+        "status": "OPEN",
+        "tags": [{"id":"9","name":"BTC","level":1}],
+        "markets": []
+      }],
+      "markets": [{
+        "id": 42,
+        "title": "BTC Up or Down",
+        "question": "Will BTC finish up?",
+        "tradingStatus": "OPEN",
+        "status": "REGISTERED",
+        "decimalPrecision": 2,
+        "isNegRisk": false,
+        "isYieldBearing": false,
+        "feeRateBps": 0,
+        "outcomes": []
+      }]
+    }
+  })";
+  auto search = predictfun::codec::decode_search_response(search_json);
+  CHECK(search);
+  CHECK(search && search.value().categories.size() == 1U);
+  CHECK(search && search.value().markets.size() == 1U);
+  CHECK(search && search.value().categories[0].image_url.has_value());
+  CHECK(search && search.value().categories[0].tags.size() == 1U);
+
+  predictfun::codec::DecodeLimits limits;
+  limits.max_tags = 0U;
+  auto bounded = predictfun::codec::decode_tags_response(tags_json, limits);
+  CHECK(!bounded);
+  CHECK(bounded.error().code == predictfun::ErrorCode::too_many_items);
+}
+
 } // namespace
 
 int main() {
@@ -359,6 +456,7 @@ int main() {
   test_rejections_and_bounds();
   test_unknown_top_level_status();
   test_category_and_timeseries_responses();
+  test_discovery_responses();
 
   if (failures != 0) {
     std::cerr << failures << " test assertion(s) failed\n";

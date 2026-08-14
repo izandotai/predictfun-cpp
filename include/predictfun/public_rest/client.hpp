@@ -3,6 +3,7 @@
 #include "predictfun/codec/public_rest.hpp"
 #include "predictfun/net/http.hpp"
 #include "predictfun/net/rate_limiter.hpp"
+#include "predictfun/types/private_rest.hpp"
 
 #include <boost/asio/any_io_executor.hpp>
 
@@ -61,6 +62,20 @@ struct MatchesQuery {
   std::optional<bool> is_signer_maker;
 };
 
+struct SearchQuery {
+  std::string query;
+  std::optional<bool> include_resolved;
+  std::optional<std::size_t> limit;
+};
+
+struct AddressPositionsQuery {
+  std::optional<std::size_t> first;
+  std::optional<std::string> after;
+  std::optional<MarketId> market_id;
+  std::optional<bool> is_resolved;
+  std::optional<std::string> sort;
+};
+
 namespace protocol {
 
 [[nodiscard]] Result<std::string> markets_target(const MarketsQuery &query);
@@ -74,6 +89,13 @@ timeseries_target(MarketId market_id, const TimeseriesQuery &query);
 [[nodiscard]] Result<std::string>
 latest_timeseries_target(MarketId market_id, std::string_view metric);
 [[nodiscard]] Result<std::string> matches_target(const MatchesQuery &query);
+[[nodiscard]] Result<std::string> tags_target();
+[[nodiscard]] Result<std::string> market_statistics_target(MarketId market_id);
+[[nodiscard]] Result<std::string> market_last_sale_target(MarketId market_id);
+[[nodiscard]] Result<std::string> search_target(const SearchQuery &query);
+[[nodiscard]] Result<std::string>
+address_positions_target(const EvmAddress &address,
+                         const AddressPositionsQuery &query);
 
 } // namespace protocol
 
@@ -110,6 +132,19 @@ public:
                                    Handler<TimeseriesPoint> handler);
   void async_get_matches(MatchesQuery query, net::RequestContext context,
                          Handler<MatchesPage> handler);
+  void async_get_tags(net::RequestContext context,
+                      Handler<std::vector<Tag>> handler);
+  void async_get_market_statistics(MarketId market_id,
+                                   net::RequestContext context,
+                                   Handler<MarketStatistics> handler);
+  void async_get_market_last_sale(
+      MarketId market_id, net::RequestContext context,
+      Handler<std::optional<MarketLastSale>> handler);
+  void async_search(SearchQuery query, net::RequestContext context,
+                    Handler<SearchResults> handler);
+  void async_get_positions_by_address(
+      EvmAddress address, AddressPositionsQuery query,
+      net::RequestContext context, Handler<PositionsPage> handler);
 
 private:
   struct Impl;

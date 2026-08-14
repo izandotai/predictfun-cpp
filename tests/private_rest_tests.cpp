@@ -29,6 +29,7 @@ using predictfun::Error;
 using predictfun::ErrorCode;
 using predictfun::Result;
 using predictfun::net::HttpRequest;
+using predictfun::net::HttpMethod;
 using predictfun::net::HttpResponse;
 
 class ScriptedTransport final : public predictfun::net::HttpTransport {
@@ -92,6 +93,19 @@ void test_exact_types() {
 }
 
 void test_codecs() {
+  const auto referral_request =
+      predictfun::codec::encode_referral_request("A1b2C");
+  CHECK(referral_request);
+  CHECK(referral_request && referral_request.value() ==
+                                R"({"data":{"referralCode":"A1b2C"}})");
+  CHECK(!predictfun::codec::encode_referral_request("ABCD"));
+  CHECK(!predictfun::codec::encode_referral_request("AB!23"));
+  const auto referral_response =
+      predictfun::codec::decode_referral_response(R"({"success":true})");
+  CHECK(referral_response && referral_response.value());
+  CHECK(!predictfun::codec::decode_referral_response(
+      R"({"success":false})"));
+
   const auto account = predictfun::codec::decode_account_response(
       R"({"success":true,"data":{"name":"alice","address":"0x1111111111111111111111111111111111111111","imageUrl":"https://example.invalid/a.png","referral":{"code":"ABC","status":"LOCKED"},"points":{"total":"12.5","rank":7}}})");
   CHECK(account);
@@ -240,6 +254,80 @@ void test_get_order_by_hash() {
         transport->requests[0].target == std::string{"/v1/orders/"} + hash);
 }
 
+void test_referral_is_single_shot() {
+  boost::asio::io_context io;
+  auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
+  transport->push(response(503, R"({"message":"temporary"})"));
+  transport->push(response(201, R"({"success":true})"));
+  auto client_options = options();
+  client_options.max_get_retries = 9U;
+  predictfun::private_rest::PrivateRestClient client(
+      io.get_executor(), transport, std::move(client_options));
+  std::optional<
+      Result<predictfun::MutationOutcome<bool>>>
+      result;
+  client.async_set_referral(
+      "A1b2C",
+      predictfun::net::RequestContext::with_timeout(std::chrono::seconds{1}),
+      [&result](Result<predictfun::MutationOutcome<bool>> value) {
+        result.emplace(std::move(value));
+      });
+  io.run();
+  CHECK(result && *result);
+  CHECK(result && *result &&
+        result->value().disposition ==
+            predictfun::MutationDisposition::ambiguous);
+  CHECK(result && *result && result->value().ambiguity &&
+        result->value().ambiguity->code == ErrorCode::http_server_error);
+  CHECK(transport->requests.size() == 1U);
+  if (transport->requests.empty()) return;
+  const auto &request = transport->requests.front();
+  CHECK(request.method == HttpMethod::post);
+  CHECK(request.target == "/v1/account/referral");
+  CHECK(request.body == R"({"data":{"referralCode":"A1b2C"}})");
+  CHECK(predictfun::net::sanitized_request_summary(request) ==
+        "POST api.predict.fun:443/v1/account/referral");
+}
+
+void test_referral_success_and_validation() {
+  boost::asio::io_context io;
+  auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
+  transport->push(response(201, R"({"success":true})"));
+  predictfun::private_rest::PrivateRestClient client(io.get_executor(), transport,
+                                                     options());
+  std::optional<Result<predictfun::MutationOutcome<bool>>> result;
+  client.async_set_referral(
+      "ABCDE",
+      predictfun::net::RequestContext::with_timeout(std::chrono::seconds{1}),
+      [&result](Result<predictfun::MutationOutcome<bool>> value) {
+        result.emplace(std::move(value));
+      });
+  io.run();
+  CHECK(result && *result);
+  CHECK(result && *result && result->value().acknowledged());
+  CHECK(result && *result && result->value().receipt &&
+        *result->value().receipt);
+  CHECK(transport->requests.size() == 1U);
+
+  boost::asio::io_context invalid_io;
+  auto invalid_transport =
+      std::make_shared<ScriptedTransport>(invalid_io.get_executor());
+  predictfun::private_rest::PrivateRestClient invalid_client(
+      invalid_io.get_executor(), invalid_transport, options());
+  std::optional<Result<predictfun::MutationOutcome<bool>>> invalid_result;
+  invalid_client.async_set_referral(
+      "TOO-LONG",
+      predictfun::net::RequestContext::with_timeout(std::chrono::seconds{1}),
+      [&invalid_result](Result<predictfun::MutationOutcome<bool>> value) {
+        invalid_result.emplace(std::move(value));
+      });
+  invalid_io.run();
+  CHECK(invalid_result && !*invalid_result);
+  CHECK(invalid_result &&
+        invalid_result->error().code == ErrorCode::invalid_argument);
+  CHECK(invalid_transport->requests.empty());
+}
+
 } // namespace
 
 int main() {
@@ -249,6 +337,8 @@ int main() {
   test_authenticated_get();
   test_missing_jwt_stops_before_transport();
   test_get_order_by_hash();
+  test_referral_is_single_shot();
+  test_referral_success_and_validation();
   if (failures != 0) std::cerr << failures << " test(s) failed\n";
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

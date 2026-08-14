@@ -29,6 +29,8 @@ SDK acceptance gates below pass.
 
 - Strong fixed-decimal market/order-book types.
 - Bounded public REST codecs and clients.
+- Complete documented discovery reads: tags, per-market statistics, nullable
+  last sale, heterogeneous search results and public-address positions.
 - TLS-verified HTTP transport with deadlines, cancellation and redaction.
 - Public WebSocket subscriptions with heartbeat, freshness, reconnect and
   resynchronization semantics.
@@ -40,6 +42,8 @@ SDK acceptance gates below pass.
 - `/v1/auth/message` and `/v1/auth` codecs/client.
 - Caller-supplied message-signer abstraction for EOA/Predict Account flows.
 - Authenticated request headers and typed account/activity/position/order reads.
+- Single-attempt referral assignment; transport/server ambiguity is surfaced
+  and must be reconciled through the account read rather than replayed.
 - Private `predictWalletEvents/{jwt}` subscription and bounded event codec.
 
 Gate: deterministic mocked lifecycle plus a read-only testnet probe; no private

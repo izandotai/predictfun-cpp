@@ -37,6 +37,14 @@ struct WireVariantData {
   std::optional<glz::raw_json> endPrice;
 };
 
+struct WireTag {
+  std::optional<std::string> id;
+  std::optional<std::string> name;
+  std::optional<std::int32_t> level;
+  std::optional<std::string> parentId;
+  std::optional<std::int32_t> makerRebateBps;
+};
+
 struct WireMarket {
   std::optional<std::uint64_t> id;
   std::optional<std::string> title;
@@ -73,6 +81,7 @@ struct WireCategory {
   std::optional<std::string> title;
   std::optional<std::string> shortTitle;
   std::optional<std::string> description;
+  std::optional<std::string> imageUrl;
   std::optional<std::string> startsAt;
   std::optional<std::string> endsAt;
   std::optional<std::string> createdAt;
@@ -84,6 +93,7 @@ struct WireCategory {
   std::optional<bool> isYieldBearing;
   std::optional<bool> isVisible;
   std::optional<std::string> status;
+  std::optional<std::vector<WireTag>> tags;
   std::optional<std::vector<WireMarket>> markets;
 };
 
@@ -153,6 +163,44 @@ struct WireMatchesResponse {
   std::optional<bool> success;
   std::optional<std::string> cursor;
   std::optional<std::vector<WireMatch>> data;
+};
+
+struct WireTagsResponse {
+  std::optional<bool> success;
+  std::optional<std::vector<WireTag>> data;
+};
+
+struct WireMarketStatistics {
+  std::optional<glz::raw_json> totalLiquidityUsd;
+  std::optional<glz::raw_json> volumeTotalUsd;
+  std::optional<glz::raw_json> volume24hUsd;
+};
+
+struct WireMarketStatisticsResponse {
+  std::optional<bool> success;
+  std::optional<WireMarketStatistics> data;
+};
+
+struct WireMarketLastSale {
+  std::optional<std::string> quoteType;
+  std::optional<std::string> outcome;
+  std::optional<glz::raw_json> priceInCurrency;
+  std::optional<std::string> strategy;
+};
+
+struct WireMarketLastSaleResponse {
+  std::optional<bool> success;
+  glz::raw_json data;
+};
+
+struct WireSearchData {
+  std::optional<std::vector<WireCategory>> categories;
+  std::optional<std::vector<WireMarket>> markets;
+};
+
+struct WireSearchResponse {
+  std::optional<bool> success;
+  std::optional<WireSearchData> data;
 };
 
 struct WireLastOrderSettled {
@@ -273,6 +321,32 @@ EnumValue<BookSide> parse_book_side(const std::string &raw) {
   if (raw == "Ask" || raw == "ASK")
     return enum_value(BookSide::ask, raw);
   return enum_value(BookSide::unknown, raw);
+}
+
+EnumValue<LastSaleQuoteType>
+parse_last_sale_quote_type(const std::string &raw) {
+  if (raw == "Bid" || raw == "BID")
+    return enum_value(LastSaleQuoteType::bid, raw);
+  if (raw == "Ask" || raw == "ASK")
+    return enum_value(LastSaleQuoteType::ask, raw);
+  return enum_value(LastSaleQuoteType::unknown, raw);
+}
+
+EnumValue<LastSaleOutcome> parse_last_sale_outcome(const std::string &raw) {
+  if (raw == "Yes" || raw == "YES")
+    return enum_value(LastSaleOutcome::yes, raw);
+  if (raw == "No" || raw == "NO")
+    return enum_value(LastSaleOutcome::no, raw);
+  return enum_value(LastSaleOutcome::unknown, raw);
+}
+
+EnumValue<LastSaleStrategy>
+parse_last_sale_strategy(const std::string &raw) {
+  if (raw == "MARKET")
+    return enum_value(LastSaleStrategy::market, raw);
+  if (raw == "LIMIT")
+    return enum_value(LastSaleStrategy::limit, raw);
+  return enum_value(LastSaleStrategy::unknown, raw);
 }
 
 std::string_view unquote_raw(const glz::raw_json &raw, std::string &storage) {
@@ -545,6 +619,21 @@ Result<Market> convert_market(const WireMarket &wire,
   return market;
 }
 
+Result<Tag> convert_tag(const WireTag &wire, const DecodeLimits &limits,
+                        std::string prefix) {
+  if (!wire.id)
+    return missing(prefix + ".id");
+  if (!wire.name)
+    return missing(prefix + ".name");
+  if (!string_within_limit(*wire.id, limits) ||
+      !string_within_limit(*wire.name, limits) ||
+      (wire.parentId && !string_within_limit(*wire.parentId, limits))) {
+    return invalid("tag string exceeds configured limit", std::move(prefix));
+  }
+  return Tag{*wire.id, *wire.name, wire.level, wire.parentId,
+             wire.makerRebateBps};
+}
+
 Result<Category> convert_category(const WireCategory &wire,
                                   const DecodeLimits &limits) {
   if (!wire.id)
@@ -565,11 +654,16 @@ Result<Category> convert_category(const WireCategory &wire,
     return Error{ErrorCode::too_many_items,
                  "category contains too many markets", "data[].markets"};
   }
+  if (wire.tags && wire.tags->size() > limits.max_tags) {
+    return Error{ErrorCode::too_many_items,
+                 "category contains too many tags", "data[].tags"};
+  }
   const auto strings_valid =
       string_within_limit(*wire.slug, limits) &&
       string_within_limit(*wire.title, limits) &&
       (!wire.shortTitle || string_within_limit(*wire.shortTitle, limits)) &&
       (!wire.description || string_within_limit(*wire.description, limits)) &&
+      (!wire.imageUrl || string_within_limit(*wire.imageUrl, limits)) &&
       (!wire.startsAt || string_within_limit(*wire.startsAt, limits)) &&
       (!wire.endsAt || string_within_limit(*wire.endsAt, limits)) &&
       (!wire.createdAt || string_within_limit(*wire.createdAt, limits)) &&
@@ -587,6 +681,7 @@ Result<Category> convert_category(const WireCategory &wire,
   category.title = *wire.title;
   category.short_title = wire.shortTitle;
   category.description = wire.description;
+  category.image_url = wire.imageUrl;
   category.starts_at = wire.startsAt;
   category.ends_at = wire.endsAt;
   category.created_at = wire.createdAt;
@@ -602,6 +697,16 @@ Result<Category> convert_category(const WireCategory &wire,
   category.is_yield_bearing = *wire.isYieldBearing;
   category.is_visible = *wire.isVisible;
   category.status = parse_category_status(*wire.status);
+  if (wire.tags) {
+    category.tags.reserve(wire.tags->size());
+    for (std::size_t i = 0; i < wire.tags->size(); ++i) {
+      auto tag = convert_tag((*wire.tags)[i], limits,
+                             "data[].tags[" + std::to_string(i) + "]");
+      if (!tag)
+        return tag.error();
+      category.tags.push_back(std::move(tag.value()));
+    }
+  }
   if (wire.markets) {
     category.markets.reserve(wire.markets->size());
     for (const auto &item : *wire.markets) {
@@ -1080,6 +1185,160 @@ Result<MatchesPage> decode_matches_response(std::string_view json,
     page.matches.push_back(std::move(event));
   }
   return page;
+}
+
+Result<std::vector<Tag>> decode_tags_response(std::string_view json,
+                                              const DecodeLimits &limits) {
+  auto parsed = parse_wire<WireTagsResponse>(json, limits);
+  if (!parsed)
+    return parsed.error();
+  const auto &wire = parsed.value();
+  if (!wire.success)
+    return missing("success");
+  if (!*wire.success)
+    return Error{ErrorCode::venue_rejected,
+                 "Predict.fun returned success=false", "success"};
+  if (!wire.data)
+    return missing("data");
+  if (wire.data->size() > limits.max_tags)
+    return Error{ErrorCode::too_many_items,
+                 "tag list exceeds configured item limit", "data"};
+
+  std::vector<Tag> tags;
+  tags.reserve(wire.data->size());
+  for (std::size_t i = 0; i < wire.data->size(); ++i) {
+    auto tag = convert_tag((*wire.data)[i], limits,
+                           "data[" + std::to_string(i) + "]");
+    if (!tag)
+      return tag.error();
+    tags.push_back(std::move(tag.value()));
+  }
+  return tags;
+}
+
+Result<MarketStatistics>
+decode_market_statistics_response(std::string_view json,
+                                  const DecodeLimits &limits) {
+  auto parsed = parse_wire<WireMarketStatisticsResponse>(json, limits);
+  if (!parsed)
+    return parsed.error();
+  const auto &wire = parsed.value();
+  if (!wire.success)
+    return missing("success");
+  if (!*wire.success)
+    return Error{ErrorCode::venue_rejected,
+                 "Predict.fun returned success=false", "success"};
+  if (!wire.data)
+    return missing("data");
+  if (!wire.data->totalLiquidityUsd)
+    return missing("data.totalLiquidityUsd");
+  if (!wire.data->volumeTotalUsd)
+    return missing("data.volumeTotalUsd");
+  if (!wire.data->volume24hUsd)
+    return missing("data.volume24hUsd");
+  auto liquidity = parse_exact_raw(*wire.data->totalLiquidityUsd,
+                                   "data.totalLiquidityUsd");
+  auto total =
+      parse_exact_raw(*wire.data->volumeTotalUsd, "data.volumeTotalUsd");
+  auto day = parse_exact_raw(*wire.data->volume24hUsd, "data.volume24hUsd");
+  if (!liquidity)
+    return liquidity.error();
+  if (!total)
+    return total.error();
+  if (!day)
+    return day.error();
+  return MarketStatistics{std::move(liquidity.value()),
+                          std::move(total.value()), std::move(day.value())};
+}
+
+Result<std::optional<MarketLastSale>>
+decode_market_last_sale_response(std::string_view json,
+                                 const DecodeLimits &limits) {
+  auto parsed = parse_wire<WireMarketLastSaleResponse>(json, limits);
+  if (!parsed)
+    return parsed.error();
+  const auto &wire = parsed.value();
+  if (!wire.success)
+    return missing("success");
+  if (!*wire.success)
+    return Error{ErrorCode::venue_rejected,
+                 "Predict.fun returned success=false", "success"};
+  if (wire.data.str.empty())
+    return missing("data");
+
+  const auto raw = std::string_view{wire.data.str};
+  const auto first = raw.find_first_not_of(" \t\r\n");
+  if (first != std::string_view::npos && raw.substr(first, 4U) == "null")
+    return std::optional<MarketLastSale>{};
+
+  WireMarketLastSale sale;
+  const auto parse_error = glz::read<read_options>(sale, raw);
+  if (parse_error)
+    return invalid("last sale contains malformed JSON", "data");
+  if (!sale.quoteType)
+    return missing("data.quoteType");
+  if (!sale.outcome)
+    return missing("data.outcome");
+  if (!sale.priceInCurrency)
+    return missing("data.priceInCurrency");
+  if (!sale.strategy)
+    return missing("data.strategy");
+  if (!string_within_limit(*sale.quoteType, limits) ||
+      !string_within_limit(*sale.outcome, limits) ||
+      !string_within_limit(*sale.strategy, limits))
+    return invalid("last sale string exceeds configured limit", "data");
+  auto price =
+      parse_exact_raw(*sale.priceInCurrency, "data.priceInCurrency");
+  if (!price)
+    return price.error();
+  return std::optional<MarketLastSale>{MarketLastSale{
+      parse_last_sale_quote_type(*sale.quoteType),
+      parse_last_sale_outcome(*sale.outcome), std::move(price.value()),
+      parse_last_sale_strategy(*sale.strategy)}};
+}
+
+Result<SearchResults> decode_search_response(std::string_view json,
+                                             const DecodeLimits &limits) {
+  auto parsed = parse_wire<WireSearchResponse>(json, limits);
+  if (!parsed)
+    return parsed.error();
+  const auto &wire = parsed.value();
+  if (!wire.success)
+    return missing("success");
+  if (!*wire.success)
+    return Error{ErrorCode::venue_rejected,
+                 "Predict.fun returned success=false", "success"};
+  if (!wire.data)
+    return missing("data");
+  if (!wire.data->categories)
+    return missing("data.categories");
+  if (!wire.data->markets)
+    return missing("data.markets");
+  if (wire.data->categories->size() > limits.max_search_results_per_type)
+    return Error{ErrorCode::too_many_items,
+                 "search category results exceed configured item limit",
+                 "data.categories"};
+  if (wire.data->markets->size() > limits.max_search_results_per_type)
+    return Error{ErrorCode::too_many_items,
+                 "search market results exceed configured item limit",
+                 "data.markets"};
+
+  SearchResults results;
+  results.categories.reserve(wire.data->categories->size());
+  results.markets.reserve(wire.data->markets->size());
+  for (const auto &item : *wire.data->categories) {
+    auto category = convert_category(item, limits);
+    if (!category)
+      return category.error();
+    results.categories.push_back(std::move(category.value()));
+  }
+  for (const auto &item : *wire.data->markets) {
+    auto market = convert_market(item, limits);
+    if (!market)
+      return market.error();
+    results.markets.push_back(std::move(market.value()));
+  }
+  return results;
 }
 
 } // namespace predictfun::codec

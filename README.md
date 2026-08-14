@@ -10,16 +10,17 @@ The current SDK contains independently linkable authority layers:
 - `predictfun::net`: caller-executor asynchronous HTTPS with TLS hostname
   verification, deadlines, cancellation, bounded bodies, and redacted request
   summaries;
-- `predictfun::public_rest`: typed, read-only markets, categories, order-book,
-  and timeseries clients with global/endpoint rate limiting and bounded GET
-  retries;
+- `predictfun::public_rest`: typed, read-only markets, categories, tags,
+  statistics, last sales, search, public-address positions, order books and
+  timeseries clients with global/endpoint rate limiting and bounded GET retries;
 - `predictfun::public_wss`: typed, read-only public WebSocket subscriptions
   with exact heartbeat echoes, bounded frames and event queues, freshness
   tracking, reconnect/resubscribe, and explicit resynchronization states;
 - `predictfun::auth`: bounded challenge/proof authentication with a
   caller-supplied asynchronous signer and move-only JWT ownership;
 - `predictfun::private_rest` and `predictfun::private_wss`: authenticated
-  account, activity, position, order and wallet-event reads;
+  account, activity, position, order and wallet-event reads, plus a strictly
+  single-attempt referral assignment with explicit ambiguous-result semantics;
 - `predictfun::order` and optional `predictfun::local_signer`: integer-only
   order construction plus `izan-crypto` EIP-712 hashing and guarded,
   caller-controlled signing;

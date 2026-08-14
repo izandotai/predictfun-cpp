@@ -35,6 +35,16 @@ struct WireAccountResponse {
   std::optional<WireAccount> data;
 };
 
+struct WireReferralRequestData {
+  std::string referralCode;
+};
+struct WireReferralRequest {
+  WireReferralRequestData data;
+};
+struct WireReferralResponse {
+  std::optional<bool> success;
+};
+
 struct WireOutcome {
   std::optional<std::string> name;
   std::optional<std::uint64_t> indexSet;
@@ -321,6 +331,36 @@ Result<OrderRecord> order_record(const WireOrderRecord &item,
 }
 
 } // namespace
+
+Result<std::string> encode_referral_request(std::string_view referral_code) {
+  if (referral_code.size() != 5U ||
+      !std::ranges::all_of(referral_code, [](unsigned char character) {
+        return (character >= '0' && character <= '9') ||
+               (character >= 'A' && character <= 'Z') ||
+               (character >= 'a' && character <= 'z');
+      }))
+    return Error{ErrorCode::invalid_argument,
+                 "referral code must contain exactly 5 ASCII letters or digits",
+                 "referral_code"};
+
+  std::string json;
+  const WireReferralRequest request{
+      WireReferralRequestData{std::string{referral_code}}};
+  if (const auto error = glz::write_json(request, json); error)
+    return Error{ErrorCode::protocol_error,
+                 "failed to encode Predict.fun referral request", {}};
+  return json;
+}
+
+Result<bool> decode_referral_response(std::string_view json,
+                                      const DecodeLimits &limits) {
+  auto wire = parse_wire<WireReferralResponse>(json, limits);
+  if (!wire) return wire.error();
+  if (!wire.value().success) return missing("success");
+  if (!*wire.value().success)
+    return invalid("Predict.fun rejected the referral assignment", "success");
+  return true;
+}
 
 Result<Account> decode_account_response(std::string_view json,
                                         const DecodeLimits &limits) {

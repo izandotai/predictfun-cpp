@@ -143,6 +143,7 @@ Result<std::string> activity_target(const ActivityQuery &query) {
 
 struct PrivateRestClient::Impl : public std::enable_shared_from_this<Impl> {
   using RawHandler = std::function<void(Result<net::HttpResponse>)>;
+  using ReferralHandler = Handler<MutationOutcome<bool>>;
 
   Impl(asio::any_io_executor executor_value,
        std::shared_ptr<net::HttpTransport> transport_value,
@@ -293,6 +294,148 @@ struct PrivateRestClient::Impl : public std::enable_shared_from_this<Impl> {
     }
   };
 
+  struct ReferralOperation
+      : public std::enable_shared_from_this<ReferralOperation> {
+    std::shared_ptr<Impl> owner;
+    std::string body;
+    net::RequestContext context;
+    ReferralHandler handler;
+    std::shared_ptr<asio::steady_timer> timer;
+    std::optional<std::stop_callback<std::function<void()>>> stop_callback;
+    bool dispatched{false};
+
+    static MutationOutcome<bool> ambiguous(Error error) {
+      return MutationOutcome<bool>{MutationDisposition::ambiguous,
+                                   std::nullopt, std::move(error),
+                                   "account.referral"};
+    }
+
+    void start() {
+      if (!handler) return;
+      if (context.cancel.stop_requested())
+        return finish(Error{ErrorCode::cancelled, "request cancelled", {}});
+      const auto now = std::chrono::steady_clock::now();
+      if (context.deadline != std::chrono::steady_clock::time_point{} &&
+          context.deadline <= now)
+        return finish(Error{ErrorCode::deadline_exceeded,
+                            "request deadline exceeded", {}});
+      const auto wait = owner->limiter->reserve("account_referral", now);
+      if (wait.count() == 0) return send();
+      if (context.deadline != std::chrono::steady_clock::time_point{} &&
+          now + wait >= context.deadline)
+        return finish(Error{ErrorCode::deadline_exceeded,
+                            "rate limit wait exceeds request deadline", {}});
+      timer = std::make_shared<asio::steady_timer>(owner->executor);
+      timer->expires_after(wait);
+      timer->async_wait([self = shared_from_this()](
+                            const boost::system::error_code &error) {
+        if (error)
+          return self->finish(
+              Error{ErrorCode::cancelled, "request wait cancelled", {}});
+        self->send();
+      });
+    }
+
+    void send() {
+      if (!handler) return;
+      std::string key;
+      SecretString jwt;
+      try {
+        if (owner->options.api_key) key = owner->options.api_key();
+        jwt = owner->options.jwt();
+      } catch (...) {
+        secure_erase(key);
+        return finish(Error{ErrorCode::authentication_required,
+                            "credential provider failed", {}});
+      }
+      if (owner->options.environment == Environment::bnb_mainnet && key.empty())
+        return finish(Error{ErrorCode::authentication_required,
+                            "Predict.fun mainnet requires an API key", {}});
+      if (jwt.empty()) {
+        secure_erase(key);
+        return finish(Error{ErrorCode::authentication_required,
+                            "Predict.fun private endpoint requires a JWT", {}});
+      }
+
+      net::HttpRequest request;
+      request.host = owner->options.environment == Environment::bnb_mainnet
+                         ? "api.predict.fun"
+                         : "api-testnet.predict.fun";
+      request.target = "/v1/account/referral";
+      request.use_tls = true;
+      request.body = body;
+      if (!key.empty()) request.headers.push_back({"x-api-key", std::move(key)});
+      request.headers.push_back(
+          {"Authorization", "Bearer " + std::string{jwt.view()}});
+      jwt.clear();
+      dispatched = true;
+      owner->transport->async_post(
+          std::move(request), context,
+          [self = shared_from_this()](Result<net::HttpResponse> result) {
+            self->handle(std::move(result));
+          });
+    }
+
+    void handle(Result<net::HttpResponse> result) {
+      if (!result) return finish(ambiguous(result.error()));
+      const auto &response = result.value();
+      if (response.status >= 200 && response.status < 300) {
+        auto parsed = codec::decode_referral_response(
+            response.body, owner->options.decode_limits);
+        if (!parsed) return finish(ambiguous(parsed.error()));
+        return finish(MutationOutcome<bool>{MutationDisposition::acknowledged,
+                                            parsed.value(), std::nullopt,
+                                            "account.referral"});
+      }
+      if (response.status >= 300 && response.status < 400)
+        return finish(http_error(ErrorCode::http_redirect, response.status,
+                                 "HTTP redirect rejected"));
+      if (response.status == 401 || response.status == 403)
+        return finish(http_error(ErrorCode::authentication_required,
+                                 response.status,
+                                 "Predict.fun authentication rejected"));
+      if (response.status == 429) {
+        const auto delay = retry_after(response, 0U);
+        owner->limiter->penalize("account_referral",
+                                 std::chrono::steady_clock::now(), delay);
+        return finish(http_error(ErrorCode::rate_limited, response.status,
+                                 "Predict.fun rate limit exceeded", delay));
+      }
+      if (response.status >= 500)
+        return finish(ambiguous(http_error(ErrorCode::http_server_error,
+                                           response.status,
+                                           "Predict.fun server error")));
+      return finish(http_error(ErrorCode::http_client_error, response.status,
+                               "Predict.fun referral assignment rejected"));
+    }
+
+    void arm_cancellation() {
+      stop_callback.emplace(
+          context.cancel, std::function<void()>{[weak = weak_from_this(),
+                                                 executor = owner->executor] {
+            asio::dispatch(executor, [weak] {
+              if (auto self = weak.lock()) {
+                if (self->timer) self->timer->cancel();
+                if (self->dispatched)
+                  self->finish(ambiguous(Error{
+                      ErrorCode::cancelled,
+                      "request cancelled after referral dispatch; reconcile account",
+                      {}}));
+                else
+                  self->finish(
+                      Error{ErrorCode::cancelled, "request cancelled", {}});
+              }
+            });
+          }});
+    }
+
+    void finish(Result<MutationOutcome<bool>> result) {
+      if (!handler) return;
+      auto completion = std::move(handler);
+      completion(std::move(result));
+    }
+  };
+
   void get(std::string endpoint, Result<std::string> target,
            net::RequestContext context, RawHandler handler) {
     if (!target) {
@@ -306,6 +449,26 @@ struct PrivateRestClient::Impl : public std::enable_shared_from_this<Impl> {
     operation->owner = shared_from_this();
     operation->endpoint = std::move(endpoint);
     operation->target = std::move(target.value());
+    operation->context = std::move(context);
+    operation->handler = std::move(handler);
+    operation->arm_cancellation();
+    asio::dispatch(executor, [operation] { operation->start(); });
+  }
+
+  void set_referral(std::string referral_code, net::RequestContext context,
+                    ReferralHandler handler) {
+    auto body = codec::encode_referral_request(referral_code);
+    if (!body) {
+      asio::dispatch(executor,
+                     [handler = std::move(handler),
+                      error = body.error()]() mutable {
+                       handler(std::move(error));
+                     });
+      return;
+    }
+    auto operation = std::make_shared<ReferralOperation>();
+    operation->owner = shared_from_this();
+    operation->body = std::move(body.value());
     operation->context = std::move(context);
     operation->handler = std::move(handler);
     operation->arm_cancellation();
@@ -388,6 +551,13 @@ void PrivateRestClient::async_get_activity(ActivityQuery query,
                handler(codec::decode_activity_response(raw.value().body,
                                                        limits));
              });
+}
+
+void PrivateRestClient::async_set_referral(
+    std::string referral_code, net::RequestContext context,
+    Handler<MutationOutcome<bool>> handler) {
+  impl_->set_referral(std::move(referral_code), std::move(context),
+                      std::move(handler));
 }
 
 } // namespace predictfun::private_rest

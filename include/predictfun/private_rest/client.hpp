@@ -4,6 +4,7 @@
 #include "predictfun/net/http.hpp"
 #include "predictfun/net/rate_limiter.hpp"
 #include "predictfun/types/auth.hpp"
+#include "predictfun/types/trading.hpp"
 
 #include <boost/asio/any_io_executor.hpp>
 
@@ -77,6 +78,13 @@ public:
                        Handler<OrderRecord> handler);
   void async_get_activity(ActivityQuery query, net::RequestContext context,
                           Handler<ActivityPage> handler);
+
+  // Referral assignment mutates remote account state. It is deliberately
+  // dispatched at most once: ambiguous transport/server outcomes must be
+  // reconciled with async_get_account() and are never replayed automatically.
+  void async_set_referral(
+      std::string referral_code, net::RequestContext context,
+      Handler<MutationOutcome<bool>> handler);
 
 private:
   struct Impl;

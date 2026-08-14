@@ -1,6 +1,21 @@
 # predictfun-cpp development progress
 
-Updated: 2026-08-13
+Updated: 2026-08-14
+
+## 2026-08-14 - documented REST surface completion
+
+- Added bounded typed clients/codecs for `/v1/tags`, market statistics,
+  nullable last sale, heterogeneous search results and public-address
+  positions. Big integer identifiers and decimal amounts remain lossless.
+- Extended categories with official image/tag metadata without exposing wire
+  JSON types through the public API.
+- Added authenticated referral assignment. It is dispatched at most once;
+  transport, malformed-success and server ambiguity is returned with the
+  `account.referral` reconciliation key and is never blindly replayed.
+- Re-probed the isolated BNB-testnet acceptance wallet after the caller's
+  faucet claim. Native gas remains funded, while the collateral registered by
+  Predict at `0xb32171ecd878607ffc4f8fc0bcce6852bb3149e0` still has zero balance.
+  No approval, split or other write was attempted.
 
 ## 2026-08-13 - long-running BTC liquidity collection hardening
 
