@@ -120,16 +120,15 @@ The harness accepts secrets only from an interactive hidden prompt, records
 receipts and before/after balances/approvals, and never blind-retries an
 ambiguous submission. Actual funded testnet evidence remains caller-authorized.
 
-The acceptance wallet and its DPAPI-protected keystore are deliberately kept
-outside the repository. Live read-only probes have validated BNB testnet chain
-id 97, a funded native-BNB gas balance, the registered collateral's zero
-balance and 18-decimal precision, and current market/orderbook/category REST
-reads. The official Predict documentation and TypeScript/Python SDKs expose no
-test-collateral faucet or mint interface. Funded mutations therefore remain
-blocked on collateral obtained through an official Predict channel; no
-unofficial faucet, arbitrary mint call or embedded credential is introduced to
-bypass that boundary. The acceptance probe reports this distinction as a
-machine-readable READY/BLOCKED gate.
+The acceptance wallet is deliberately kept outside the repository. Live
+read-only probes have validated BNB testnet chain id 97, funded native BNB,
+`1000000000000000000000` registered test-collateral base units at 18 decimals,
+and current market/orderbook/category REST reads. A funded standard split probe
+has also bound the exact public condition and outcome-token ids, constructed
+the transaction and passed `eth_call`. The remaining write prerequisite is the
+minimal operation-scoped allowance reported by the probe. No unofficial faucet,
+arbitrary mint call, embedded credential or non-interactive key-loading path is
+introduced to bypass the caller-present acceptance gate.
 
 P7 also exposes exact read-only executable-liquidity analysis as a separately
 linkable target. Its BTC 5m/15m probe selects the current epoch-derived market,

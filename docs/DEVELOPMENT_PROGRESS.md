@@ -257,22 +257,26 @@ not a mutable checkout. A read-only build emits neither
 `predictfun_local_signer` nor `izan_secp256k1`, while an installed-package
 consumer must opt into the signer target explicitly.
 
-An isolated BNB-testnet-only acceptance wallet now exists outside the source
-tree in a Windows DPAPI-protected keystore. The final Debug executable has
-successfully captured a live read-only chain-97 preflight: registered
-collateral and its on-chain 18-decimal precision were read, the zero balance
-was preserved, and the missing minimal trade-buy allowance was identified.
-No key material or acceptance evidence is stored in this repository.
+An isolated BNB-testnet-only acceptance wallet exists in locally ignored
+operator configuration outside version control. The final executable has
+successfully captured live read-only chain-97 preflights for balances,
+precision, approvals and a position operation. No key material or acceptance
+evidence is stored in this repository.
 
-The acceptance snapshots now report native BNB in wei separately from the
+The acceptance snapshots report native BNB in wei separately from the
 registered Predict test collateral. This prevents a funded gas wallet from
 being misdiagnosed as a funded trading wallet and applies to both approval and
-position-operation probes. A fresh read-only BNB testnet probe verified
-`300000000000000000` wei of native gas while the registered collateral remains
-zero; the remaining acceptance dependency is obtaining test collateral, not
-gas funding.
+position-operation probes. After the official faucet claim, a fresh live
+read-only BNB testnet probe verified `299990301500000000` wei of native gas and
+`1000000000000000000000` registered-collateral base units at 18 decimals. A
+one-token standard split probe then bound the public condition and both outcome
+token ids, constructed the exact calldata and passed `eth_call` without sending
+a transaction. The probe identified only the minimal conditional-token
+collateral allowance as missing.
 
-Next: obtain the deployed Predict test collateral for the isolated address,
-then capture funded split/merge/convert/redeem receipts and post-operation
-balance transitions without changing the SDK's authority boundary. Native BNB
-gas is already funded and independently verified.
+Next: run the exact interactively confirmed, operation-scoped allowance, then
+capture split/merge/convert/redeem receipts and post-operation balance
+transitions. The acceptance tool deliberately refuses private keys supplied by
+arguments, files or environment variables; this final mutation gate therefore
+remains a caller-present testnet action and does not weaken the SDK authority
+boundary. No key material or live evidence is committed.
