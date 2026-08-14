@@ -152,18 +152,22 @@ boundary for PMT without importing credentials, signing or mutation authority.
   resets only after a fully live/reconciled session.
 - Fuzz/property tests for codecs, amount math and state machines.
 - ASan/UBSan/TSan where supported; Windows static-PE verification.
-- API reference, cookbooks and semver/package installation test.
+- API reference, compile-checked cookbooks and semver/package installation
+  test. Complete: the exact-liquidity example runs offline, the BNB-testnet
+  public-orderbook example is compile-checked without mutation authority, and
+  both are rebuilt against full and signer-free installed packages.
 - Host-facing durable execution session and installed-package consumer test.
 
 Gate: clean Debug/Release builds and complete test matrix from a fresh clone.
 
 The installed-release portion of this gate is automated by
 `scripts/verify-release.sh`: it verifies exact semver discovery, a full package
-with an explicit signer consumer, and a read-only package whose installed
-headers and exported CMake targets contain no local signer. The same script is
-the manually triggered Ubuntu/Windows CI entry point. Remaining P7 release
-work is documentation/cookbook completion and final release/tag review, not
-PMT integration.
+with an explicit signer consumer and compile-checked cookbook examples, and a
+read-only package whose installed headers and exported CMake targets contain
+no local signer. The same script is
+the manually triggered Ubuntu/Windows CI entry point. The API/cookbook and
+package-consumer gates are complete; remaining P7 release work is final
+release/tag review, not PMT integration.
 
 ## Non-negotiable safety properties
 

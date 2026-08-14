@@ -118,6 +118,7 @@ configure_consumer() {
     -G "$generator" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_PREFIX_PATH="$prefix_dir" \
+    -DOPENSSL_USE_STATIC_LIBS=TRUE \
     -DPREDICTFUN_BOOST_SOURCE_DIR="$consumer_boost_source" \
     -DPREDICTFUN_IZAN_CRYPTO_SOURCE_DIR="$consumer_izan_source" \
     -DPREDICTFUN_PACKAGE_VERSION="$package_version" \

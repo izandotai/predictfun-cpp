@@ -32,6 +32,18 @@ target_link_libraries(package_consumer
         predictfun::execution
 )
 
+add_executable(package_cookbook_exact
+    ../../examples/exact_liquidity.cpp)
+target_compile_features(package_cookbook_exact PRIVATE cxx_std_20)
+target_link_libraries(package_cookbook_exact
+    PRIVATE predictfun::analysis)
+
+add_executable(package_cookbook_public_orderbook
+    ../../examples/public_orderbook.cpp)
+target_compile_features(package_cookbook_public_orderbook PRIVATE cxx_std_20)
+target_link_libraries(package_cookbook_public_orderbook
+    PRIVATE predictfun::public_rest)
+
 if(PREDICTFUN_PACKAGE_CONSUMER_WITH_SIGNER)
     if(NOT TARGET predictfun::local_signer)
         message(FATAL_ERROR
@@ -45,6 +57,7 @@ endif()
 
 enable_testing()
 add_test(NAME installed_public_consumer COMMAND package_consumer)
+add_test(NAME installed_cookbook_exact COMMAND package_cookbook_exact)
 if(PREDICTFUN_PACKAGE_CONSUMER_WITH_SIGNER)
     add_test(NAME installed_signer_consumer COMMAND package_signer_consumer)
 endif()

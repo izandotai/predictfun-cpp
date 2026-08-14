@@ -1,6 +1,31 @@
 # predictfun-cpp development progress
 
-Updated: 2026-08-14
+Updated: 2026-08-15
+
+## 2026-08-15 - compile-checked public API and cookbook
+
+- Added an authority-layered public API reference covering exact numeric
+  types, executor ownership, public and private transports, signing, durable
+  execution, lifecycle recovery and explicit BNB-chain mutation boundaries.
+- Added a safety-oriented cookbook for exact package consumption, offline
+  depth analysis, bounded public BNB-testnet reads, caller-owned API keys,
+  streaming, authentication, durable order submission, crash recovery and
+  explicitly gated chain writes.
+- Added two warnings-as-errors examples: an offline exact-liquidity quote and
+  a public BNB-testnet orderbook read. Neither example reads a credential,
+  signs a payload or links a mutation target.
+- Both examples are compile-checked from the source tree and again through
+  isolated full-authority and signer-free installed packages. The exact
+  offline example is also executed in each applicable test matrix.
+- Verified the local Debug and isolated Release matrices at 34/34 tests. The
+  complete installed package passed its public, exact-cookbook and explicit
+  signer consumers; the signer-free package passed its public and exact
+  cookbook consumers and exported no signer artifact or target.
+- Hardened the installed-package gate so its consumers select the same static
+  OpenSSL linkage as the SDK build. This removes an accidental Windows DLL
+  runtime dependency from the otherwise isolated verification environment.
+- The remaining P7 work is the final release/tag review. PMT integration
+  remains deliberately out of scope.
 
 ## 2026-08-14 - reproducible installed-release gate
 

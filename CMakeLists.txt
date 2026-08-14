@@ -8,6 +8,8 @@ include(CMakePackageConfigHelpers)
 
 option(PREDICTFUN_BUILD_TESTS "Build predictfun-cpp tests" ON)
 option(PREDICTFUN_BUILD_TOOLS "Build predictfun-cpp read-only tools" ON)
+option(PREDICTFUN_BUILD_EXAMPLES
+       "Build compile-checked, non-mutating cookbook examples" ON)
 option(PREDICTFUN_BUILD_LOCAL_SIGNER
        "Build the separately linkable in-memory secp256k1 signer" ON)
 option(PREDICTFUN_BUILD_FUZZERS
@@ -459,6 +461,24 @@ if(PREDICTFUN_BUILD_TOOLS OR PREDICTFUN_BUILD_TESTS)
     predictfun_enable_warnings(predictfun_testnet_acceptance_support)
 endif()
 
+if(PREDICTFUN_BUILD_EXAMPLES)
+    add_executable(predictfun_example_exact_liquidity
+        examples/exact_liquidity.cpp)
+    target_compile_features(predictfun_example_exact_liquidity
+        PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_example_exact_liquidity
+        PRIVATE predictfun::analysis)
+    predictfun_enable_warnings(predictfun_example_exact_liquidity)
+
+    add_executable(predictfun_example_public_orderbook
+        examples/public_orderbook.cpp)
+    target_compile_features(predictfun_example_public_orderbook
+        PRIVATE cxx_std_20)
+    target_link_libraries(predictfun_example_public_orderbook
+        PRIVATE predictfun::public_rest)
+    predictfun_enable_warnings(predictfun_example_public_orderbook)
+endif()
+
 if(PREDICTFUN_BUILD_TOOLS)
     add_executable(predictfun_read_only_probe tools/read_only_probe.cpp)
     target_compile_features(predictfun_read_only_probe PRIVATE cxx_std_20)
@@ -591,6 +611,11 @@ if(PREDICTFUN_BUILD_TESTS)
         PRIVATE predictfun::analysis)
     predictfun_enable_warnings(predictfun_liquidity_tests)
     add_test(NAME liquidity COMMAND predictfun_liquidity_tests)
+
+    if(PREDICTFUN_BUILD_EXAMPLES)
+        add_test(NAME cookbook_exact_liquidity
+            COMMAND predictfun_example_exact_liquidity)
+    endif()
 
     if(PREDICTFUN_BUILD_TOOLS)
         add_test(NAME liquidity_report

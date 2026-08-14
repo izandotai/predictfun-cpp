@@ -40,15 +40,18 @@ The current SDK contains independently linkable authority layers:
   generation change;
 - deterministic YES-to-NO order-book derivation using integer ticks.
 
-P0 through P6 are implemented and pass the 33/33 deterministic Debug and Release
-test matrices. P7 production hardening is in progress; durable recovery,
+P0 through P6 are implemented; the deterministic Debug and Release matrices
+pass 34/34 tests. P7 production hardening is in progress; durable recovery,
 shared REST budgets, reconnect-storm protection, property/adversarial tests,
 fault injection, sanitizer CI, a codec fuzzer, installed-package consumers and
 an explicitly gated BNB-testnet acceptance harness are present. The official
 API/schema audit and the durable host-facing execution composition are also
-complete. Caller-authorized BNB-testnet receipts and balance transitions now
-prove standard split/merge/redeem and negative-risk split/convert/redeem. The
-optional mainnet API key is supplied by the caller and is emitted
+complete. The authority-layered [API reference](docs/API_REFERENCE.md) and
+compile-checked [cookbook](docs/COOKBOOK.md) now cover package consumption,
+read-only data, exact depth, authentication, durable execution, recovery and
+explicitly gated chain operations. Caller-authorized BNB-testnet receipts and
+balance transitions now prove standard split/merge/redeem and negative-risk
+split/convert/redeem. The optional mainnet API key is supplied by the caller and is emitted
 only as an `x-api-key` header; the SDK does not read environment files and
 rejects credentials in request targets.
 
@@ -73,9 +76,10 @@ Before publishing or tagging a release, run the isolated installation gate:
 ```
 
 It builds and tests a full Release package, installs it into a temporary
-prefix, and compiles/runs consumers against the installed `predictfun 0.1.0`
-package. It then repeats the installation with local signing disabled and
-proves that neither signer headers nor signer CMake targets are exported.
+prefix, and compiles/runs consumers plus the cookbook examples against the
+installed `predictfun 0.1.0` package. It then repeats the installation with
+local signing disabled and proves that neither signer headers nor signer CMake
+targets are exported.
 Verified local dependency source trees are reused when the existing Release
 cache names them; a clean CI checkout instead downloads the immutable pinned
 archives. TLS verification is never disabled.
