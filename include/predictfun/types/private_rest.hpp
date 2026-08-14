@@ -58,7 +58,15 @@ enum class SignatureType : std::uint8_t {
   unknown = 255
 };
 enum class OrderStrategy { market, limit, unknown };
-enum class OrderStatus { open, matched, cancelled, expired, failed, unknown };
+enum class OrderStatus {
+  open,
+  matched,
+  cancelled,
+  expired,
+  invalidated,
+  failed,
+  unknown
+};
 
 struct ContractOrder {
   std::string hash;

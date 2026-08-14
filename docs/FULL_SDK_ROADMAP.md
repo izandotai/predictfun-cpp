@@ -34,6 +34,11 @@ SDK acceptance gates below pass.
 - TLS-verified HTTP transport with deadlines, cancellation and redaction.
 - Public WebSocket subscriptions with heartbeat, freshness, reconnect and
   resynchronization semantics.
+- Complete documented market/category lifecycle and metadata decoding,
+  including rewards, embedded statistics and bounded forward-compatible
+  sports/variant JSON payloads.
+- Audited endpoint/topic inventory in `docs/OFFICIAL_API_COVERAGE.md`; OAuth and
+  schema-only objects without public routes are intentionally not invented.
 
 ### P3: authentication and private read foundation — complete
 

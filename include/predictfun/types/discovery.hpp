@@ -1,7 +1,6 @@
 #pragma once
 
 #include "predictfun/types/category.hpp"
-#include "predictfun/types/exact_number.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -9,12 +8,6 @@
 #include <vector>
 
 namespace predictfun {
-
-struct MarketStatistics {
-  ExactDecimal total_liquidity_usd;
-  ExactDecimal volume_total_usd;
-  ExactDecimal volume_24h_usd;
-};
 
 enum class LastSaleQuoteType { bid, ask, unknown };
 enum class LastSaleOutcome { yes, no, unknown };

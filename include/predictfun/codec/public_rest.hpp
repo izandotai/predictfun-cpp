@@ -21,11 +21,14 @@ struct DecodeLimits {
   std::size_t max_tags{10'000U};
   std::size_t max_search_results_per_type{25U};
   std::size_t max_outcomes_per_market{256U};
+  std::size_t max_reward_periods{10'000U};
+  std::size_t max_polymarket_condition_ids{10'000U};
   std::size_t max_book_levels_per_side{20'000U};
   std::size_t max_timeseries_points{100'000U};
   std::size_t max_matches{10'000U};
   std::size_t max_makers_per_match{10'000U};
   std::size_t max_string_bytes{256U * 1024U};
+  std::size_t max_embedded_json_bytes{512U * 1024U};
 };
 
 [[nodiscard]] Result<MarketsPage>
@@ -59,8 +62,7 @@ decode_latest_timeseries_response(std::string_view json,
                                   const DecodeLimits &limits = {});
 
 [[nodiscard]] Result<MatchesPage>
-decode_matches_response(std::string_view json,
-                        const DecodeLimits &limits = {});
+decode_matches_response(std::string_view json, const DecodeLimits &limits = {});
 
 [[nodiscard]] Result<std::vector<Tag>>
 decode_tags_response(std::string_view json, const DecodeLimits &limits = {});

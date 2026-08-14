@@ -1,6 +1,7 @@
 #pragma once
 
 #include "predictfun/types/decimal.hpp"
+#include "predictfun/types/exact_number.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -25,6 +26,12 @@ enum class TradingStatus {
 };
 enum class MarketStatus {
   registered,
+  price_proposed,
+  price_disputed,
+  paused,
+  unpaused,
+  // Retained for older API payloads observed before the documented lifecycle
+  // enum was expanded.
   open,
   resolving,
   resolved,
@@ -50,6 +57,32 @@ struct Outcome {
   std::optional<BestQuote> best_bid;
   std::optional<BestQuote> best_ask;
   std::optional<EnumValue<OutcomeStatus>> status;
+  // Sport-specific schemas evolve independently of the trading API. Preserve
+  // their bounded JSON without forcing SDK consumers to upgrade for every new
+  // league or provider payload.
+  std::optional<std::string> team_json;
+  std::optional<std::string> variant_data_json;
+  std::optional<std::string> variant_details_json;
+};
+
+struct RewardPeriod {
+  std::int32_t hourly_rate{0};
+  std::string starts_at;
+  std::string ends_at;
+};
+
+struct MarketRewards {
+  std::optional<RewardPeriod> current;
+  std::vector<RewardPeriod> schedule;
+};
+
+struct MarketStatistics {
+  ExactDecimal total_liquidity_usd;
+  ExactDecimal volume_total_usd;
+  ExactDecimal volume_24h_usd;
+  // Added to the official schema after the statistics endpoint first shipped.
+  // Optional keeps historical/testnet payloads decodable.
+  std::optional<ExactDecimal> liquidity_3c_ask_usd;
 };
 
 // Present when marketVariant is CRYPTO_UP_DOWN. Prices are optional because
@@ -82,6 +115,27 @@ struct Market {
   std::optional<std::string> market_variant;
   std::optional<CryptoUpDownVariantData> crypto_up_down;
   std::vector<Outcome> outcomes;
+
+  // Extended fields documented by the current Predict API. They remain
+  // optional because future windows and older testnet payloads can be sparse.
+  std::optional<std::string> image_url;
+  std::optional<std::string> description;
+  std::optional<bool> is_visible;
+  std::optional<Outcome> resolution;
+  std::optional<std::string> oracle_question_id;
+  std::optional<std::string> resolver_address;
+  std::optional<ExactDecimal> spread_threshold;
+  std::optional<ExactDecimal> share_threshold;
+  std::optional<bool> is_boosted;
+  std::optional<std::string> boost_starts_at;
+  std::optional<std::string> boost_ends_at;
+  std::vector<std::string> polymarket_condition_ids;
+  std::optional<std::string> kalshi_market_ticker;
+  std::optional<std::string> market_type;
+  std::optional<MarketRewards> rewards;
+  std::optional<MarketStatistics> stats;
+  std::optional<std::string> team_json;
+  std::optional<std::string> variant_details_json;
 };
 
 struct MarketsPage {

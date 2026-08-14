@@ -50,12 +50,12 @@ NormalDecimal normalize(std::string_view text) {
   if (dot != std::string_view::npos)
     result.fraction = std::string{text.substr(dot + 1U)};
   const auto nonzero = result.integer.find_first_not_of('0');
-  result.integer = nonzero == std::string::npos
-                       ? "0"
-                       : result.integer.substr(nonzero);
+  result.integer =
+      nonzero == std::string::npos ? "0" : result.integer.substr(nonzero);
   while (!result.fraction.empty() && result.fraction.back() == '0')
     result.fraction.pop_back();
-  if (result.integer == "0" && result.fraction.empty()) result.negative = false;
+  if (result.integer == "0" && result.fraction.empty())
+    result.negative = false;
   return result;
 }
 
@@ -68,7 +68,8 @@ int magnitude_compare(const NormalDecimal &left, const NormalDecimal &right) {
   for (std::size_t index = 0; index < width; ++index) {
     const auto l = index < left.fraction.size() ? left.fraction[index] : '0';
     const auto r = index < right.fraction.size() ? right.fraction[index] : '0';
-    if (l != r) return l < r ? -1 : 1;
+    if (l != r)
+      return l < r ? -1 : 1;
   }
   return 0;
 }
@@ -76,7 +77,8 @@ int magnitude_compare(const NormalDecimal &left, const NormalDecimal &right) {
 int compare(const ExactDecimal &left, const ExactDecimal &right) {
   const auto l = normalize(left.to_string());
   const auto r = normalize(right.to_string());
-  if (l.negative != r.negative) return l.negative ? -1 : 1;
+  if (l.negative != r.negative)
+    return l.negative ? -1 : 1;
   const auto magnitude = magnitude_compare(l, r);
   return l.negative ? -magnitude : magnitude;
 }
@@ -86,7 +88,8 @@ bool zero(const ExactDecimal &value) {
 }
 
 void derive_fill_state(TrackedOrder &tracked) {
-  if (zero(tracked.amount_filled)) return;
+  if (zero(tracked.amount_filled))
+    return;
   tracked.state = compare(tracked.amount_filled, tracked.amount) >= 0
                       ? OrderLifecycleState::filled
                       : OrderLifecycleState::partially_filled;
@@ -103,28 +106,32 @@ Result<TrackedOrder *> OrderTracker::begin_submission(std::string hash,
                                                       ExactDecimal amount) {
   if (!valid_hash(hash))
     return Error{ErrorCode::invalid_argument,
-                 "order hash must be 0x followed by 64 hex characters",
-                 "hash"};
+                 "order hash must be 0x followed by 64 hex characters", "hash"};
   if (normalize(amount.to_string()).negative || zero(amount))
     return Error{ErrorCode::invalid_quantity,
                  "tracked order amount must be positive", "amount"};
   if (orders_.contains(hash))
-    return Error{ErrorCode::invalid_argument,
-                 "order hash is already tracked", "hash"};
+    return Error{ErrorCode::invalid_argument, "order hash is already tracked",
+                 "hash"};
   auto [iterator, inserted] = orders_.emplace(
-      hash, TrackedOrder{hash, {}, std::move(amount),
+      hash, TrackedOrder{hash,
+                         {},
+                         std::move(amount),
                          ExactDecimal::parse("0").value(),
-                         OrderLifecycleState::submission_pending, false, 0U,
-                         0, {}});
+                         OrderLifecycleState::submission_pending,
+                         false,
+                         0U,
+                         0,
+                         {}});
   (void)inserted;
   return &iterator->second;
 }
 
 Result<bool> OrderTracker::apply_create_outcome(
-    std::string_view hash,
-    const MutationOutcome<CreateOrderReceipt> &outcome) {
+    std::string_view hash, const MutationOutcome<CreateOrderReceipt> &outcome) {
   auto *tracked = find(hash);
-  if (!tracked) return unknown(hash);
+  if (!tracked)
+    return unknown(hash);
   if (outcome.disposition == MutationDisposition::ambiguous) {
     tracked->state = OrderLifecycleState::ambiguous;
     tracked->reconciliation_required = true;
@@ -146,7 +153,8 @@ Result<bool> OrderTracker::apply_create_outcome(
 
 Result<bool> OrderTracker::apply_rest_order(const OrderRecord &order) {
   auto *tracked = find(order.order.hash);
-  if (!tracked) return unknown(order.order.hash);
+  if (!tracked)
+    return unknown(order.order.hash);
   tracked->order_id = order.id;
   tracked->amount = order.amount;
   tracked->amount_filled = order.amount_filled;
@@ -165,6 +173,12 @@ Result<bool> OrderTracker::apply_rest_order(const OrderRecord &order) {
   case OrderStatus::expired:
     tracked->state = OrderLifecycleState::expired;
     break;
+  case OrderStatus::invalidated:
+    // INVALIDATED is terminal at the venue (for example nonce/allowance state
+    // made the resting order unusable). It cannot be treated as an open or
+    // successfully cancelled order.
+    tracked->state = OrderLifecycleState::rejected;
+    break;
   case OrderStatus::failed:
     tracked->state = OrderLifecycleState::rejected;
     break;
@@ -179,7 +193,8 @@ Result<bool> OrderTracker::apply_rest_order(const OrderRecord &order) {
 
 Result<bool> OrderTracker::apply_wallet_event(const WalletEvent &event) {
   auto *tracked = find(event.order_hash);
-  if (!tracked) return unknown(event.order_hash);
+  if (!tracked)
+    return unknown(event.order_hash);
   tracked->order_id = event.order_id.empty()
                           ? tracked->order_id
                           : std::optional<std::string>{event.order_id};
@@ -222,9 +237,11 @@ Result<bool> OrderTracker::apply_wallet_event(const WalletEvent &event) {
 
 Result<bool> OrderTracker::mark_book_removed(std::string_view hash) {
   auto *tracked = find(hash);
-  if (!tracked) return unknown(hash);
+  if (!tracked)
+    return unknown(hash);
   tracked->state = OrderLifecycleState::book_removed;
-  tracked->reason = "removed from off-chain orderbook; on-chain order remains valid";
+  tracked->reason =
+      "removed from off-chain orderbook; on-chain order remains valid";
   tracked->reconciliation_required = true;
   return true;
 }
@@ -232,7 +249,8 @@ Result<bool> OrderTracker::mark_book_removed(std::string_view hash) {
 void OrderTracker::require_reconciliation(std::uint64_t stream_generation) {
   for (auto &[hash, order] : orders_) {
     (void)hash;
-    if (order.terminal()) continue;
+    if (order.terminal())
+      continue;
     order.reconciliation_required = true;
     order.stream_generation = stream_generation;
   }
@@ -244,7 +262,8 @@ ReconciliationReport OrderTracker::reconcile(
   ReconciliationReport report{orders_.size(), 0U, {}};
   std::unordered_set<std::string> observed;
   for (const auto &order : complete_order_snapshot) {
-    if (!orders_.contains(order.order.hash)) continue;
+    if (!orders_.contains(order.order.hash))
+      continue;
     observed.insert(order.order.hash);
     ++report.observed;
     (void)apply_rest_order(order);
@@ -252,7 +271,8 @@ ReconciliationReport OrderTracker::reconcile(
       tracked->stream_generation = stream_generation;
   }
   for (auto &[hash, order] : orders_) {
-    if (order.terminal() || observed.contains(hash)) continue;
+    if (order.terminal() || observed.contains(hash))
+      continue;
     order.reconciliation_required = true;
     order.stream_generation = stream_generation;
     report.unresolved_hashes.push_back(hash);

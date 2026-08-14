@@ -21,6 +21,13 @@ struct Tag {
   std::optional<std::int32_t> maker_rebate_bps;
 };
 
+struct CategoryStatistics {
+  ExactDecimal total_liquidity_usd;
+  ExactDecimal volume_total_usd;
+  ExactDecimal volume_24h_usd;
+  std::uint64_t holders_count{0};
+};
+
 struct Category {
   std::uint64_t id{0};
   std::string slug;
@@ -42,6 +49,11 @@ struct Category {
   EnumValue<CategoryStatus> status;
   std::vector<Tag> tags;
   std::vector<Market> markets;
+  std::optional<std::string> resolution_provider;
+  std::optional<std::string> parent_slug;
+  std::optional<CategoryStatistics> stats;
+  std::optional<std::string> teams_json;
+  std::optional<std::string> variant_details_json;
 };
 
 struct CategoriesPage {

@@ -20,7 +20,7 @@ int failures = 0;
   do {                                                                         \
     if (!(condition)) {                                                        \
       std::cerr << __FILE__ << ':' << __LINE__                                 \
-                << ": CHECK failed: " #condition << '\n';                    \
+                << ": CHECK failed: " #condition << '\n';                      \
       ++failures;                                                              \
     }                                                                          \
   } while (false)
@@ -28,28 +28,31 @@ int failures = 0;
 using predictfun::Error;
 using predictfun::ErrorCode;
 using predictfun::Result;
-using predictfun::net::HttpRequest;
 using predictfun::net::HttpMethod;
+using predictfun::net::HttpRequest;
 using predictfun::net::HttpResponse;
 
 class ScriptedTransport final : public predictfun::net::HttpTransport {
 public:
   explicit ScriptedTransport(boost::asio::any_io_executor executor)
       : executor_(std::move(executor)) {}
-  void push(HttpResponse response) { responses_.emplace_back(std::move(response)); }
+  void push(HttpResponse response) {
+    responses_.emplace_back(std::move(response));
+  }
   void async_request(HttpRequest request, predictfun::net::RequestContext,
                      predictfun::net::ResponseHandler handler) override {
     requests.push_back(std::move(request));
-    auto result = responses_.empty()
-                      ? Result<HttpResponse>{Error{ErrorCode::protocol_error,
-                                                   "empty scripted queue", {}}}
-                      : std::move(responses_.front());
-    if (!responses_.empty()) responses_.pop_front();
-    boost::asio::dispatch(executor_,
-                          [handler = std::move(handler),
-                           result = std::move(result)]() mutable {
-                            handler(std::move(result));
-                          });
+    auto result =
+        responses_.empty()
+            ? Result<HttpResponse>{Error{
+                  ErrorCode::protocol_error, "empty scripted queue", {}}}
+            : std::move(responses_.front());
+    if (!responses_.empty())
+      responses_.pop_front();
+    boost::asio::dispatch(executor_, [handler = std::move(handler),
+                                      result = std::move(result)]() mutable {
+      handler(std::move(result));
+    });
   }
   std::vector<HttpRequest> requests;
 
@@ -84,10 +87,10 @@ predictfun::private_rest::ClientOptions options() {
 
 void test_exact_types() {
   CHECK(predictfun::Uint256::parse("00042").value().to_string() == "42");
-  CHECK(predictfun::Uint256::parse(
-      "115792089237316195423570985008687907853269984665640564039457584007913129639935"));
-  CHECK(!predictfun::Uint256::parse(
-      "115792089237316195423570985008687907853269984665640564039457584007913129639936"));
+  CHECK(predictfun::Uint256::parse("1157920892373161954235709850086879078532699"
+                                   "84665640564039457584007913129639935"));
+  CHECK(!predictfun::Uint256::parse("115792089237316195423570985008687907853269"
+                                    "984665640564039457584007913129639936"));
   CHECK(predictfun::ExactDecimal::parse("-0.001250"));
   CHECK(!predictfun::ExactDecimal::parse("1e-3"));
 }
@@ -96,15 +99,14 @@ void test_codecs() {
   const auto referral_request =
       predictfun::codec::encode_referral_request("A1b2C");
   CHECK(referral_request);
-  CHECK(referral_request && referral_request.value() ==
-                                R"({"data":{"referralCode":"A1b2C"}})");
+  CHECK(referral_request &&
+        referral_request.value() == R"({"data":{"referralCode":"A1b2C"}})");
   CHECK(!predictfun::codec::encode_referral_request("ABCD"));
   CHECK(!predictfun::codec::encode_referral_request("AB!23"));
   const auto referral_response =
       predictfun::codec::decode_referral_response(R"({"success":true})");
   CHECK(referral_response && referral_response.value());
-  CHECK(!predictfun::codec::decode_referral_response(
-      R"({"success":false})"));
+  CHECK(!predictfun::codec::decode_referral_response(R"({"success":false})"));
 
   const auto account = predictfun::codec::decode_account_response(
       R"({"success":true,"data":{"name":"alice","address":"0x1111111111111111111111111111111111111111","imageUrl":"https://example.invalid/a.png","referral":{"code":"ABC","status":"LOCKED"},"points":{"total":"12.5","rank":7}}})");
@@ -114,7 +116,8 @@ void test_codecs() {
         account.value().points->total.to_string() == "12.5");
 
   const auto positions = predictfun::codec::decode_positions_response(
-      "{\"success\":true,\"cursor\":\"next\",\"data\":[{\"id\":\"p1\",\"market\":" +
+      "{\"success\":true,\"cursor\":\"next\",\"data\":[{\"id\":\"p1\","
+      "\"market\":" +
       market_json() +
       R"(,"outcome":{"name":"Up","indexSet":1,"onChainId":"123"},"amount":"1.234567890123456789","valueUsd":"0.8","averageBuyPriceUsd":"0.65","pnlUsd":"-0.02"}]})");
   CHECK(positions);
@@ -136,8 +139,24 @@ void test_codecs() {
   CHECK(order && order.value().order.hash == hash);
   CHECK(order && order.value().amount_filled.to_string() == "0.5");
 
+  auto invalidated_json = order_json(hash);
+  const auto status_offset = invalidated_json.find("\"status\":\"OPEN\"");
+  CHECK(status_offset != std::string::npos);
+  invalidated_json.replace(status_offset,
+                           std::string{"\"status\":\"OPEN\""}.size(),
+                           "\"status\":\"INVALIDATED\"");
+  const auto invalidated = predictfun::codec::decode_order_response(
+      std::string{R"({"success":true,"data":)"} + invalidated_json + "}");
+  CHECK(invalidated);
+  CHECK(invalidated && invalidated.value().status.value ==
+                           predictfun::OrderStatus::invalidated);
+
   const auto activity = predictfun::codec::decode_activity_response(
-      "{\"success\":true,\"data\":[{\"name\":\"MATCH\",\"createdAt\":\"2026-08-12T00:00:00Z\",\"transactionHash\":\"0xtx\",\"amountFilled\":\"2\",\"priceExecuted\":\"0.5\",\"order\":{\"quoteType\":\"Ask\",\"amount\":\"2\",\"price\":\"0.5\",\"fee\":{\"amount\":\"0.01\",\"type\":\"COLLATERAL\"}},\"market\":" +
+      "{\"success\":true,\"data\":[{\"name\":\"MATCH\",\"createdAt\":\"2026-08-"
+      "12T00:00:00Z\",\"transactionHash\":\"0xtx\",\"amountFilled\":\"2\","
+      "\"priceExecuted\":\"0.5\",\"order\":{\"quoteType\":\"Ask\",\"amount\":"
+      "\"2\",\"price\":\"0.5\",\"fee\":{\"amount\":\"0.01\",\"type\":"
+      "\"COLLATERAL\"}},\"market\":" +
       market_json() +
       R"(,"outcome":{"name":"Up","indexSet":1,"onChainId":"123"}}]})");
   CHECK(activity);
@@ -158,20 +177,23 @@ void test_targets() {
   positions.market_id = predictfun::MarketId{42U};
   positions.is_resolved = false;
   positions.sort = "VALUE_DESC";
-  const auto target = predictfun::private_rest::protocol::positions_target(positions);
+  const auto target =
+      predictfun::private_rest::protocol::positions_target(positions);
   CHECK(target);
-  CHECK(target && target.value() ==
-                      "/v1/positions?first=25&after=cursor%2B%2F%3D&marketId=42&isResolved=false&sort=VALUE_DESC");
+  CHECK(target &&
+        target.value() == "/v1/"
+                          "positions?first=25&after=cursor%2B%2F%3D&marketId="
+                          "42&isResolved=false&sort=VALUE_DESC");
 
   predictfun::private_rest::ActivityQuery activity;
   activity.event_types = {"MATCH", "SPLIT"};
   const auto activity_target =
       predictfun::private_rest::protocol::activity_target(activity);
   CHECK(activity_target);
-  CHECK(activity_target && activity_target.value().find("eventTypes=MATCH") !=
-                               std::string::npos);
-  CHECK(activity_target && activity_target.value().find("eventTypes=SPLIT") !=
-                               std::string::npos);
+  CHECK(activity_target &&
+        activity_target.value().find("eventTypes=MATCH") != std::string::npos);
+  CHECK(activity_target &&
+        activity_target.value().find("eventTypes=SPLIT") != std::string::npos);
 
   const auto hash =
       "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -187,8 +209,8 @@ void test_authenticated_get() {
   transport->push(response(
       200,
       R"({"success":true,"data":{"name":"alice","address":"0x1111111111111111111111111111111111111111"}})"));
-  predictfun::private_rest::PrivateRestClient client(io.get_executor(), transport,
-                                                     options());
+  predictfun::private_rest::PrivateRestClient client(io.get_executor(),
+                                                     transport, options());
   std::optional<Result<predictfun::Account>> result;
   client.async_get_account(
       predictfun::net::RequestContext::with_timeout(std::chrono::seconds{1}),
@@ -198,7 +220,8 @@ void test_authenticated_get() {
   io.run();
   CHECK(result && *result);
   CHECK(transport->requests.size() == 1U);
-  if (transport->requests.empty()) return;
+  if (transport->requests.empty())
+    return;
   const auto &request = transport->requests[0];
   CHECK(request.target == "/v1/account");
   CHECK(request.headers.size() == 2U);
@@ -234,11 +257,10 @@ void test_get_order_by_hash() {
   auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
   const auto hash =
       "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-  transport->push(response(
-      200, std::string{R"({"success":true,"data":)"} + order_json(hash) +
-               "}"));
-  predictfun::private_rest::PrivateRestClient client(io.get_executor(), transport,
-                                                     options());
+  transport->push(response(200, std::string{R"({"success":true,"data":)"} +
+                                    order_json(hash) + "}"));
+  predictfun::private_rest::PrivateRestClient client(io.get_executor(),
+                                                     transport, options());
   std::optional<Result<predictfun::OrderRecord>> result;
   client.async_get_order(
       hash,
@@ -263,9 +285,7 @@ void test_referral_is_single_shot() {
   client_options.max_get_retries = 9U;
   predictfun::private_rest::PrivateRestClient client(
       io.get_executor(), transport, std::move(client_options));
-  std::optional<
-      Result<predictfun::MutationOutcome<bool>>>
-      result;
+  std::optional<Result<predictfun::MutationOutcome<bool>>> result;
   client.async_set_referral(
       "A1b2C",
       predictfun::net::RequestContext::with_timeout(std::chrono::seconds{1}),
@@ -280,7 +300,8 @@ void test_referral_is_single_shot() {
   CHECK(result && *result && result->value().ambiguity &&
         result->value().ambiguity->code == ErrorCode::http_server_error);
   CHECK(transport->requests.size() == 1U);
-  if (transport->requests.empty()) return;
+  if (transport->requests.empty())
+    return;
   const auto &request = transport->requests.front();
   CHECK(request.method == HttpMethod::post);
   CHECK(request.target == "/v1/account/referral");
@@ -293,8 +314,8 @@ void test_referral_success_and_validation() {
   boost::asio::io_context io;
   auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
   transport->push(response(201, R"({"success":true})"));
-  predictfun::private_rest::PrivateRestClient client(io.get_executor(), transport,
-                                                     options());
+  predictfun::private_rest::PrivateRestClient client(io.get_executor(),
+                                                     transport, options());
   std::optional<Result<predictfun::MutationOutcome<bool>>> result;
   client.async_set_referral(
       "ABCDE",
@@ -339,6 +360,7 @@ int main() {
   test_get_order_by_hash();
   test_referral_is_single_shot();
   test_referral_success_and_validation();
-  if (failures != 0) std::cerr << failures << " test(s) failed\n";
+  if (failures != 0)
+    std::cerr << failures << " test(s) failed\n";
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

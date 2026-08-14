@@ -74,9 +74,10 @@ void test_markets_fixture() {
   CHECK(page.markets.size() == 1U);
   const auto &market = page.markets.front();
   CHECK(market.id.value == 424242U);
-  CHECK(market.condition_id &&
-        *market.condition_id ==
-            "0x1111111111111111111111111111111111111111111111111111111111111111");
+  CHECK(
+      market.condition_id &&
+      *market.condition_id ==
+          "0x1111111111111111111111111111111111111111111111111111111111111111");
   CHECK(market.question_index && *market.question_index == 7U);
   CHECK(market.trading_status.value == predictfun::TradingStatus::open);
   CHECK(market.status.value == predictfun::MarketStatus::registered);
@@ -87,6 +88,94 @@ void test_markets_fixture() {
   CHECK(market.outcomes[1].status.has_value());
   CHECK(market.outcomes[1].status->value == predictfun::OutcomeStatus::unknown);
   CHECK(market.outcomes[1].status->raw == "FUTURE_STATUS");
+}
+
+void test_extended_market_schema() {
+  constexpr auto json = R"({
+    "success": true,
+    "data": {
+      "id": 77,
+      "imageUrl": "https://example.invalid/market.png",
+      "title": "Extended market",
+      "question": "Will the documented schema decode?",
+      "description": "Current official response fields",
+      "tradingStatus": "OPEN",
+      "status": "PRICE_PROPOSED",
+      "isVisible": true,
+      "isNegRisk": false,
+      "isYieldBearing": true,
+      "feeRateBps": 125,
+      "resolution": {
+        "name": "Yes", "indexSet": 1, "onChainId": "101",
+        "status": "WON",
+        "team": {"id": 9, "name": "Alpha"},
+        "variantData": {"type": "SPORTS_FIFA_FRIENDLIES"}
+      },
+      "oracleQuestionId": "oracle-77",
+      "conditionId": "condition-77",
+      "resolverAddress": "0x1111111111111111111111111111111111111111",
+      "outcomes": [{
+        "name": "Yes", "indexSet": 1, "onChainId": "101",
+        "team": {"id": 9}, "variantDetails": {"period": "full"}
+      }],
+      "questionIndex": 3,
+      "spreadThreshold": "0.03",
+      "shareThreshold": 5,
+      "isBoosted": true,
+      "boostStartsAt": "2026-08-14T00:00:00Z",
+      "boostEndsAt": "2026-08-15T00:00:00Z",
+      "polymarketConditionIds": ["pm-a", "pm-b"],
+      "kalshiMarketTicker": "KX-77",
+      "categorySlug": "sports",
+      "createdAt": "2026-08-14T00:00:00Z",
+      "decimalPrecision": 2,
+      "marketVariant": "DEFAULT",
+      "variantDetails": {"schemaVersion": 2},
+      "team": {"id": 9, "name": "Alpha"},
+      "marketType": "SPORTS_MONEYLINE",
+      "rewards": {
+        "current": {"hourlyRate": 25, "startsAt": "a", "endsAt": "b"},
+        "schedule": [
+          {"hourlyRate": 25, "startsAt": "a", "endsAt": "b"},
+          {"hourlyRate": 10, "startsAt": "b", "endsAt": "c"}
+        ]
+      },
+      "stats": {
+        "totalLiquidityUsd": "1000.5",
+        "liquidity3cAskUsd": "125.25",
+        "volumeTotalUsd": "9000",
+        "volume24hUsd": "700"
+      }
+    }
+  })";
+  auto result = predictfun::codec::decode_market_response(json);
+  CHECK(result);
+  if (!result)
+    return;
+  const auto &market = result.value();
+  CHECK(market.status.value == predictfun::MarketStatus::price_proposed);
+  CHECK(market.is_visible && *market.is_visible);
+  CHECK(market.resolution && market.resolution->status &&
+        market.resolution->status->value == predictfun::OutcomeStatus::won);
+  CHECK(market.resolution && market.resolution->team_json.has_value());
+  CHECK(market.spread_threshold &&
+        market.spread_threshold->to_string() == "0.03");
+  CHECK(market.share_threshold && market.share_threshold->to_string() == "5");
+  CHECK(market.polymarket_condition_ids.size() == 2U);
+  CHECK(market.rewards && market.rewards->current &&
+        market.rewards->current->hourly_rate == 25);
+  CHECK(market.rewards && market.rewards->schedule.size() == 2U);
+  CHECK(market.stats && market.stats->liquidity_3c_ask_usd &&
+        market.stats->liquidity_3c_ask_usd->to_string() == "125.25");
+  CHECK(market.team_json.has_value());
+  CHECK(market.outcomes[0].variant_details_json.has_value());
+
+  auto paused =
+      predictfun::codec::decode_market_response(std::string{json}.replace(
+          std::string{json}.find("PRICE_PROPOSED"),
+          std::string{"PRICE_PROPOSED"}.size(), "PAUSED"));
+  CHECK(paused &&
+        paused.value().status.value == predictfun::MarketStatus::paused);
 }
 
 void test_crypto_category_fixture() {
@@ -101,13 +190,13 @@ void test_crypto_category_fixture() {
   const auto &category = page.categories.front();
   CHECK(category.starts_at &&
         *category.starts_at == "2026-08-13T07:00:00.000Z");
-  CHECK(category.ends_at &&
-        *category.ends_at == "2026-08-13T07:05:00.000Z");
+  CHECK(category.ends_at && *category.ends_at == "2026-08-13T07:05:00.000Z");
   CHECK(category.market_variant &&
         *category.market_variant == "CRYPTO_UP_DOWN");
-  CHECK(category.neg_risk_on_chain_id &&
-        *category.neg_risk_on_chain_id ==
-            "0x2222222222222222222222222222222222222222222222222222222222222222");
+  CHECK(
+      category.neg_risk_on_chain_id &&
+      *category.neg_risk_on_chain_id ==
+          "0x2222222222222222222222222222222222222222222222222222222222222222");
   CHECK(category.crypto_up_down.has_value());
   CHECK(category.crypto_up_down->price_feed_symbol &&
         *category.crypto_up_down->price_feed_symbol == "BTCUSDT");
@@ -117,12 +206,12 @@ void test_crypto_category_fixture() {
   CHECK(category.markets.size() == 1U);
   const auto &market = category.markets.front();
   CHECK(market.category_slug && *market.category_slug == category.slug);
-  CHECK(market.condition_id &&
-        *market.condition_id ==
-            "0x3333333333333333333333333333333333333333333333333333333333333333");
+  CHECK(
+      market.condition_id &&
+      *market.condition_id ==
+          "0x3333333333333333333333333333333333333333333333333333333333333333");
   CHECK(market.question_index && *market.question_index == 11U);
-  CHECK(market.market_variant &&
-        *market.market_variant == "CRYPTO_UP_DOWN");
+  CHECK(market.market_variant && *market.market_variant == "CRYPTO_UP_DOWN");
   CHECK(market.crypto_up_down && market.crypto_up_down->price_feed_id &&
         *market.crypto_up_down->price_feed_id == "sanitized-feed-id");
   CHECK(market.outcomes[0].name == "Up");
@@ -204,7 +293,8 @@ void test_rejections_and_bounds() {
 
   constexpr auto duplicated =
       R"({"success":true,"data":{"marketId":1,"updateTimestampMs":1,"asks":[[0.20,"1.25"],[0.10,1],[0.20,"2.5"]],"bids":[]}})";
-  const auto merged = predictfun::codec::decode_orderbook_response(duplicated, 2);
+  const auto merged =
+      predictfun::codec::decode_orderbook_response(duplicated, 2);
   CHECK(merged);
   CHECK(merged && merged.value().yes_asks.size() == 2U &&
         merged.value().yes_asks[1].price.ticks() == 20U &&
@@ -276,6 +366,15 @@ void test_category_and_timeseries_responses() {
       "isYieldBearing": false,
       "isVisible": true,
       "status": "OPEN",
+      "resolutionProvider": "PREDICT_DOT_FUN",
+      "parentSlug": "root",
+      "teams": [{"id": 1, "name": "Alpha"}],
+      "stats": {
+        "totalLiquidityUsd": "10",
+        "volumeTotalUsd": "20",
+        "volume24hUsd": "3",
+        "holdersCount": 4
+      },
       "markets": []
     }
   })";
@@ -286,6 +385,11 @@ void test_category_and_timeseries_responses() {
     CHECK(category.value().slug == "crypto");
     CHECK(category.value().is_visible);
     CHECK(category.value().status.value == predictfun::CategoryStatus::open);
+    CHECK(category.value().resolution_provider &&
+          *category.value().resolution_provider == "PREDICT_DOT_FUN");
+    CHECK(category.value().stats &&
+          category.value().stats->holders_count == 4U);
+    CHECK(category.value().teams_json.has_value());
   }
 
   constexpr auto categories_json = R"({
@@ -362,24 +466,25 @@ void test_discovery_responses() {
   auto tags = predictfun::codec::decode_tags_response(tags_json);
   CHECK(tags);
   CHECK(tags && tags.value().size() == 1U);
-  CHECK(tags && tags.value()[0].id ==
-                    "18446744073709551616000000000000000000");
+  CHECK(tags && tags.value()[0].id == "18446744073709551616000000000000000000");
   CHECK(tags && tags.value()[0].maker_rebate_bps == 15);
 
   constexpr auto stats_json = R"({
     "success": true,
     "data": {
       "totalLiquidityUsd": "12345678901234567890.125",
+      "liquidity3cAskUsd": "44.125",
       "volumeTotalUsd": 456.75,
       "volume24hUsd": "12.50"
     }
   })";
-  auto stats =
-      predictfun::codec::decode_market_statistics_response(stats_json);
+  auto stats = predictfun::codec::decode_market_statistics_response(stats_json);
   CHECK(stats);
   CHECK(stats && stats.value().total_liquidity_usd.to_string() ==
                      "12345678901234567890.125");
   CHECK(stats && stats.value().volume_total_usd.to_string() == "456.75");
+  CHECK(stats && stats.value().liquidity_3c_ask_usd &&
+        stats.value().liquidity_3c_ask_usd->to_string() == "44.125");
 
   constexpr auto sale_json = R"({
     "success": true,
@@ -450,6 +555,7 @@ void test_discovery_responses() {
 int main() {
   test_decimal();
   test_markets_fixture();
+  test_extended_market_schema();
   test_crypto_category_fixture();
   test_orderbook_fixture_and_no_view();
   test_empty_and_string_numeric_book();

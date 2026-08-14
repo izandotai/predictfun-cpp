@@ -2,6 +2,25 @@
 
 Updated: 2026-08-14
 
+## 2026-08-14 - official schema and lifecycle parity
+
+- Re-audited every documented general-use REST route and all six public/private
+  WebSocket topics. The durable matrix is in
+  `docs/OFFICIAL_API_COVERAGE.md`; OAuth and schema-only objects are explicitly
+  separated from the supported public surface.
+- Extended market decoding with the complete documented lifecycle, visibility,
+  resolution/oracle metadata, thresholds, boosts, external venue identifiers,
+  rewards and embedded statistics.
+- Extended categories with resolution provider, parent slug, category
+  statistics and bounded team/variant payload preservation.
+- Added `INVALIDATED` order semantics and fail-closed lifecycle handling.
+  Sports/variant payloads remain bounded raw JSON so future venue fields are
+  retained without leaking the wire JSON implementation into the public API.
+- Added deterministic coverage for rich current-schema responses, all new
+  lifecycle states, rewards, optional three-cent liquidity and bounded sports
+  metadata. Clean Debug and Release matrices are both green at 31/31, and the
+  installed public and signer package consumers both build and run.
+
 ## 2026-08-14 - documented REST surface completion
 
 - Added bounded typed clients/codecs for `/v1/tags`, market statistics,
@@ -207,7 +226,10 @@ P7 durable recovery is implemented without integrating PMT:
 - [ ] Capture caller-authorized BNB testnet receipts and post-operation balance
   transitions for split, merge, convert and redeem.
 
-Current deterministic matrix: 31 Debug/Release tests.
+Current deterministic matrix: 31/31 Debug and 31/31 Release tests. The
+installed public and explicitly opted-in signer consumers also build and run.
+Official endpoint, WebSocket-topic and response-model coverage is tracked
+separately in `docs/OFFICIAL_API_COVERAGE.md`.
 
 Release verification also rebuilds from the pinned `izan-crypto` archive,
 not a mutable checkout. A read-only build emits neither
