@@ -164,10 +164,10 @@ The installed-release portion of this gate is automated by
 `scripts/verify-release.sh`: it verifies exact semver discovery, a full package
 with an explicit signer consumer and compile-checked cookbook examples, and a
 read-only package whose installed headers and exported CMake targets contain
-no local signer. The same script is
-the manually triggered Ubuntu/Windows CI entry point. The API/cookbook and
-package-consumer gates are complete; remaining P7 release work is final
-release/tag review, not PMT integration.
+no local signer. The same script is the manually triggered Ubuntu/Windows CI
+entry point. The API/cookbook, package-consumer and final release-review gates
+are complete for `v0.1.0`. PMT integration remains a separate downstream
+decision.
 
 ## Non-negotiable safety properties
 

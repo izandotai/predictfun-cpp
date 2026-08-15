@@ -1,6 +1,9 @@
 # predictfun-cpp
 
-An independently layered C++20 client library for Predict.fun.
+An independently layered C++20 client library for Predict.fun. The current
+release is `v0.1.0`; see the [changelog](CHANGELOG.md),
+[release checklist](docs/RELEASE_CHECKLIST.md) and
+[security policy](SECURITY.md).
 
 The current SDK contains independently linkable authority layers:
 
@@ -40,8 +43,8 @@ The current SDK contains independently linkable authority layers:
   generation change;
 - deterministic YES-to-NO order-book derivation using integer ticks.
 
-P0 through P6 are implemented; the deterministic Debug and Release matrices
-pass 34/34 tests. P7 production hardening is in progress; durable recovery,
+P0 through P7 are implemented; the deterministic Debug and Release matrices
+pass 34/34 tests. Production hardening includes durable recovery,
 shared REST budgets, reconnect-storm protection, property/adversarial tests,
 fault injection, sanitizer CI, a codec fuzzer, installed-package consumers and
 an explicitly gated BNB-testnet acceptance harness are present. The official
@@ -59,7 +62,7 @@ The complete SDK definition, module order and acceptance gates are tracked in
 [`docs/FULL_SDK_ROADMAP.md`](docs/FULL_SDK_ROADMAP.md); current implementation
 state is tracked in
 [`docs/DEVELOPMENT_PROGRESS.md`](docs/DEVELOPMENT_PROGRESS.md). PMT integration
-is intentionally deferred until every SDK gate passes.
+remains intentionally outside the SDK release.
 
 ## Build and test
 

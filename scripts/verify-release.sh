@@ -106,6 +106,18 @@ configure_sdk() {
   cmake --install "$build_dir"
 }
 
+verify_installed_docs() {
+  prefix_dir=$1
+  doc_dir="$prefix_dir/share/doc/predictfun"
+  for document in LICENSE README.md CHANGELOG.md; do
+    if [ ! -s "$doc_dir/$document" ]; then
+      printf 'installed release is missing documentation: %s\n' \
+        "$doc_dir/$document" >&2
+      exit 1
+    fi
+  done
+}
+
 configure_consumer() {
   sdk_build=$1
   prefix_dir=$2
@@ -144,6 +156,7 @@ printf '%s\n' '[1/4] isolated Release build, test and full install'
 full_build="$release_root/full-build"
 full_prefix="$release_root/full-prefix"
 configure_sdk "$full_build" "$full_prefix" ON ON
+verify_installed_docs "$full_prefix"
 
 printf '%s\n' '[2/4] full installed-package consumers, including explicit signer'
 configure_consumer "$full_build" "$full_prefix" \
@@ -153,6 +166,7 @@ printf '%s\n' '[3/4] isolated read-only install without local signer'
 readonly_build="$release_root/readonly-build"
 readonly_prefix="$release_root/readonly-prefix"
 configure_sdk "$readonly_build" "$readonly_prefix" OFF OFF
+verify_installed_docs "$readonly_prefix"
 
 if find "$readonly_prefix" -type f \
     \( -name '*local_signer*' -o -name '*local_transaction_signer*' \) \

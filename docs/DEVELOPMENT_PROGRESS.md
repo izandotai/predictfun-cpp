@@ -2,6 +2,22 @@
 
 Updated: 2026-08-15
 
+## 2026-08-15 - v0.1.0 release review
+
+- Audited the package version, public targets, install export, authority
+  boundaries, ignored local credential file and remote tag namespace.
+- Tightened pre-1.0 package compatibility to the `0.1.x` minor line instead of
+  treating every future `0.x` minor as compatible.
+- Added the changelog, security policy and reproducible release checklist; the
+  installed package now carries its license, README and changelog.
+- Extended the isolated release gate to reject packages missing any of those
+  installed documents.
+- Re-ran the warnings-as-errors Debug matrix (34/34), then the isolated Release
+  matrix (34/34), full installed consumers and signer-free installed consumers.
+  Installed documentation and signer-free artifact inspection also passed.
+- Published the clean reviewed commit as the annotated `v0.1.0` tag; its remote
+  identity is verified against `origin/main` after the tag push.
+
 ## 2026-08-15 - compile-checked public API and cookbook
 
 - Added an authority-layered public API reference covering exact numeric
@@ -204,7 +220,7 @@ Updated: 2026-08-15
 | P4 deterministic order builder | complete | official SDK/ethers golden vectors and local signer tests |
 | P5 trading/reconciliation | implementation complete | `trading`, `lifecycle`, durable `execution`, match/order REST and authority-boundary tests |
 | P6 BNB wallet operations | complete | deterministic gates plus caller-authorized standard and neg-risk split/merge/convert/redeem receipts and post-balances |
-| P7 hardening/release | in progress | durable host execution/recovery, shared rate budgets, reconnect-storm protection, hostile-input testing and gated testnet acceptance harness implemented |
+| P7 hardening/release | complete | `v0.1.0`: Debug/Release 34/34, full and signer-free installed consumers, documentation and tag gates passed |
 
 ## Completed P3 checklist
 

@@ -435,7 +435,10 @@ configure_package_config_file(
 write_basic_package_version_file(
     "${CMAKE_CURRENT_BINARY_DIR}/predictfunConfigVersion.cmake"
     VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMajorVersion
+    # predictfun-cpp is still pre-1.0. A future 0.2.x release may change the
+    # public API, so only patch releases within 0.1.x are compatibility
+    # candidates unless a consumer asks for an exact version.
+    COMPATIBILITY SameMinorVersion
 )
 install(EXPORT predictfunTargets
     FILE predictfunTargets.cmake
@@ -447,6 +450,10 @@ install(
         "${CMAKE_CURRENT_BINARY_DIR}/predictfunConfig.cmake"
         "${CMAKE_CURRENT_BINARY_DIR}/predictfunConfigVersion.cmake"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/predictfun
+)
+install(
+    FILES LICENSE README.md CHANGELOG.md
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/predictfun
 )
 
 if(PREDICTFUN_BUILD_TOOLS OR PREDICTFUN_BUILD_TESTS)
