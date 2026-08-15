@@ -51,20 +51,26 @@ else()
 endif()
 FetchContent_MakeAvailable(Boost)
 
-if(PREDICTFUN_IZAN_CRYPTO_SOURCE_DIR)
-    FetchContent_Declare(izan_crypto_dependency
-        SOURCE_DIR "${PREDICTFUN_IZAN_CRYPTO_SOURCE_DIR}"
-        EXCLUDE_FROM_ALL
-    )
-else()
-    FetchContent_Declare(izan_crypto_dependency
-        URL https://github.com/izandotai/izan-crypto/archive/8c6857d911da89a229e6a9911e984601e7cf15fa.tar.gz
-        URL_HASH SHA256=E70B9BA33D93D98D052A73F88E3A56F340234E3BC8B3B91BE2E5D676DE682149
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-        EXCLUDE_FROM_ALL
-    )
+# Reuse an embedding application's already configured izan-crypto targets.
+# Fetching the same source under a second FetchContent name would otherwise
+# attempt to create duplicate izan::* targets in consumers such as PMT.
+if(NOT TARGET izan::crypto OR NOT TARGET izan::eip712 OR
+   (PREDICTFUN_BUILD_LOCAL_SIGNER AND NOT TARGET izan::secp256k1))
+    if(PREDICTFUN_IZAN_CRYPTO_SOURCE_DIR)
+        FetchContent_Declare(izan_crypto_dependency
+            SOURCE_DIR "${PREDICTFUN_IZAN_CRYPTO_SOURCE_DIR}"
+            EXCLUDE_FROM_ALL
+        )
+    else()
+        FetchContent_Declare(izan_crypto_dependency
+            URL https://github.com/izandotai/izan-crypto/archive/8c6857d911da89a229e6a9911e984601e7cf15fa.tar.gz
+            URL_HASH SHA256=E70B9BA33D93D98D052A73F88E3A56F340234E3BC8B3B91BE2E5D676DE682149
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+            EXCLUDE_FROM_ALL
+        )
+    endif()
+    FetchContent_MakeAvailable(izan_crypto_dependency)
 endif()
-FetchContent_MakeAvailable(izan_crypto_dependency)
 
 # Boost's CMake targets are used only to resolve and validate the pinned source
 # tree.  Keep concrete include directories in the build interface so our
