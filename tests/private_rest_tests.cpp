@@ -115,6 +115,18 @@ void test_codecs() {
   CHECK(account && account.value().points &&
         account.value().points->total.to_string() == "12.5");
 
+  const auto eoa_without_referral =
+      predictfun::codec::decode_account_response(
+          R"({"success":true,"data":{"name":"","address":"0x1111111111111111111111111111111111111111","referral":{}}})");
+  CHECK(eoa_without_referral);
+  CHECK(eoa_without_referral && !eoa_without_referral.value().referral);
+
+  const auto partial_referral = predictfun::codec::decode_account_response(
+      R"({"success":true,"data":{"name":"alice","address":"0x1111111111111111111111111111111111111111","referral":{"code":"ABC"}}})");
+  CHECK(!partial_referral);
+  CHECK(!partial_referral &&
+        partial_referral.error().field == "data.referral.status");
+
   const auto positions = predictfun::codec::decode_positions_response(
       "{\"success\":true,\"cursor\":\"next\",\"data\":[{\"id\":\"p1\","
       "\"market\":" +

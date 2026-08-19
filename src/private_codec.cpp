@@ -456,10 +456,17 @@ Result<Account> decode_account_response(std::string_view json,
 
   Account account{*data.name, address.value(), data.imageUrl, {}, {}};
   if (data.referral) {
-    if (!data.referral->code || !data.referral->status)
-      return missing("data.referral");
-    account.referral =
-        ReferralInfo{*data.referral->code, *data.referral->status};
+    const auto has_code = data.referral->code.has_value();
+    const auto has_status = data.referral->status.has_value();
+    if (has_code != has_status)
+      return missing(has_code ? "data.referral.status"
+                              : "data.referral.code");
+    // New EOAs can legitimately receive an empty referral object. Referral
+    // metadata is ancillary account information, not account identity or an
+    // authentication prerequisite, so preserve it only when it is complete.
+    if (has_code)
+      account.referral =
+          ReferralInfo{*data.referral->code, *data.referral->status};
   }
   if (data.points) {
     if (!data.points->total)
