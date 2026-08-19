@@ -5,6 +5,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace predictfun::order {
 
@@ -26,6 +27,10 @@ public:
   sign_digest(const Hash32 &digest) const;
   [[nodiscard]] Result<std::string>
   sign_personal_message_32(const Hash32 &message) const;
+  // Signs an arbitrary UTF-8 challenge with the EIP-191 `personal_sign`
+  // envelope used by Predict.fun wallet authentication.
+  [[nodiscard]] Result<std::string>
+  sign_personal_message(std::string_view message) const;
 
 private:
   struct Impl;

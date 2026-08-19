@@ -107,7 +107,10 @@ private clients; do not serialize either secret.
 
 If local signing is explicitly selected, link `predictfun::local_signer` and
 move a `SecretString` into `LocalSigner::create`. The signer does not read disk
-or environment variables. A read-only deployment should configure and install
+or environment variables. Adapt `LocalSigner::sign_personal_message` to
+`auth::MessageSigner::async_sign_message` for the bounded authentication
+challenge; do not use the order-only 32-byte helper for arbitrary text. A
+read-only deployment should configure and install
 with `PREDICTFUN_BUILD_LOCAL_SIGNER=OFF`.
 
 ## 7. Submit through the durable session

@@ -62,6 +62,19 @@ int main() {
                           "0x8a44003b1358f0063ba448411489fcf891f736de2d286aeea0cb22f32863ec9c"
                           "3be689469bed6df2d09fc06eaaa2fa91abd55583e0395f5003a721fec6a9a73a1b",
           "Predict Account personal signature matches ethers golden vector");
+
+    auto generic_personal = signer.value().sign_personal_message(
+        std::string_view{reinterpret_cast<const char *>(kernel_digest.data()),
+                         kernel_digest.size()});
+    check(generic_personal && personal && generic_personal.value() == personal.value(),
+          "generic EIP-191 signer preserves the 32-byte golden vector");
+
+    auto challenge = signer.value().sign_personal_message("dynamic challenge");
+    auto repeated = signer.value().sign_personal_message("dynamic challenge");
+    check(challenge && repeated && challenge.value() == repeated.value() &&
+              challenge.value().size() == 132U &&
+              challenge.value().starts_with("0x"),
+          "arbitrary authentication challenge is signed deterministically");
   }
 
   auto malformed = predictfun::order::LocalSigner::create(SecretString{"bad"});

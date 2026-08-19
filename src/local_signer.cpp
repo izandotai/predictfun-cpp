@@ -7,6 +7,7 @@
 #include <array>
 #include <cctype>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -115,11 +116,19 @@ Result<std::string> LocalSigner::sign_digest(const Hash32 &digest) const {
 
 Result<std::string>
 LocalSigner::sign_personal_message_32(const Hash32 &message) const {
-  constexpr std::string_view prefix = "\x19"
-                                      "Ethereum Signed Message:\n32";
+  return sign_personal_message(std::string_view{
+      reinterpret_cast<const char *>(message.data()), message.size()});
+}
+
+Result<std::string>
+LocalSigner::sign_personal_message(std::string_view message) const {
+  constexpr std::string_view envelope = "\x19"
+                                        "Ethereum Signed Message:\n";
+  const auto length = std::to_string(message.size());
   std::vector<std::uint8_t> payload;
-  payload.reserve(prefix.size() + message.size());
-  payload.insert(payload.end(), prefix.begin(), prefix.end());
+  payload.reserve(envelope.size() + length.size() + message.size());
+  payload.insert(payload.end(), envelope.begin(), envelope.end());
+  payload.insert(payload.end(), length.begin(), length.end());
   payload.insert(payload.end(), message.begin(), message.end());
   auto digest = keccak256(payload);
   secure_erase_bytes(payload);
