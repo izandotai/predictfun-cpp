@@ -123,9 +123,13 @@ void test_codecs() {
 
   const auto partial_referral = predictfun::codec::decode_account_response(
       R"({"success":true,"data":{"name":"alice","address":"0x1111111111111111111111111111111111111111","referral":{"code":"ABC"}}})");
-  CHECK(!partial_referral);
-  CHECK(!partial_referral &&
-        partial_referral.error().field == "data.referral.status");
+  CHECK(partial_referral);
+  CHECK(partial_referral && !partial_referral.value().referral);
+
+  const auto unbound_referral = predictfun::codec::decode_account_response(
+      R"({"success":true,"data":{"name":"alice","address":"0x1111111111111111111111111111111111111111","referral":{"status":"UNBOUND"}}})");
+  CHECK(unbound_referral);
+  CHECK(unbound_referral && !unbound_referral.value().referral);
 
   const auto positions = predictfun::codec::decode_positions_response(
       "{\"success\":true,\"cursor\":\"next\",\"data\":[{\"id\":\"p1\","
