@@ -20,7 +20,7 @@ int failures = 0;
   do {                                                                         \
     if (!(condition)) {                                                        \
       std::cerr << __FILE__ << ':' << __LINE__                                 \
-                << ": CHECK failed: " #condition << '\n';                    \
+                << ": CHECK failed: " #condition << '\n';                      \
       ++failures;                                                              \
     }                                                                          \
   } while (false)
@@ -49,16 +49,17 @@ public:
   void async_request(HttpRequest request, predictfun::net::RequestContext,
                      predictfun::net::ResponseHandler handler) override {
     requests.push_back(std::move(request));
-    auto result = responses_.empty()
-                      ? Result<HttpResponse>{Error{ErrorCode::protocol_error,
-                                                   "empty scripted queue", {}}}
-                      : std::move(responses_.front());
-    if (!responses_.empty()) responses_.pop_front();
-    boost::asio::dispatch(
-        executor_, [handler = std::move(handler),
-                    result = std::move(result)]() mutable {
-          handler(std::move(result));
-        });
+    auto result =
+        responses_.empty()
+            ? Result<HttpResponse>{Error{
+                  ErrorCode::protocol_error, "empty scripted queue", {}}}
+            : std::move(responses_.front());
+    if (!responses_.empty())
+      responses_.pop_front();
+    boost::asio::dispatch(executor_, [handler = std::move(handler),
+                                      result = std::move(result)]() mutable {
+      handler(std::move(result));
+    });
   }
 
   std::vector<HttpRequest> requests;
@@ -89,8 +90,7 @@ predictfun::CreateOrderRequest order_request() {
   request.price_per_share_wei = uint256("500000000000000000");
   request.strategy = predictfun::ExecutionStrategy::limit;
   request.is_post_only = true;
-  request.self_trade_prevention =
-      predictfun::SelfTradePrevention::cancel_taker;
+  request.self_trade_prevention = predictfun::SelfTradePrevention::cancel_taker;
   request.order.salt = uint256("1");
   request.order.maker = address("0x1111111111111111111111111111111111111111");
   request.order.signer = address("0x2222222222222222222222222222222222222222");
@@ -120,20 +120,25 @@ using MutationResult = Result<predictfun::MutationOutcome<T>>;
 void test_codec() {
   auto request = order_request();
   request.slippage_bps = uint256("25");
-  request.reserved_balance_policy.emplace();
+  request.reserved_balance_policy =
+      predictfun::ReservedBalancePolicy::reject_market_order;
   const auto encoded = predictfun::codec::encode_create_order_request(request);
   CHECK(encoded);
-  CHECK(encoded && encoded.value().find(R"("pricePerShare":"500000000000000000")") !=
+  CHECK(encoded &&
+        encoded.value().find(R"("pricePerShare":"500000000000000000")") !=
+            std::string::npos);
+  CHECK(encoded &&
+        encoded.value().find(R"("expiration":0)") != std::string::npos);
+  CHECK(encoded && encoded.value().find(
+                       R"("reservedBalancePolicy":"REJECT_MARKET_ORDER")") !=
                        std::string::npos);
-  CHECK(encoded && encoded.value().find(R"("expiration":0)") !=
-                       std::string::npos);
-  CHECK(encoded && encoded.value().find(R"("reservedBalancePolicy":{})") !=
-                       std::string::npos);
-  CHECK(encoded && encoded.value().find(R"("selfTradePrevention":"CANCEL_TAKER")") !=
-                       std::string::npos);
+  CHECK(encoded &&
+        encoded.value().find(R"("selfTradePrevention":"CANCEL_TAKER")") !=
+            std::string::npos);
 
   const auto receipt = predictfun::codec::decode_create_order_response(
-      std::string{R"({"success":true,"data":{"code":"OK","orderId":"id-1","orderHash":")"} +
+      std::string{
+          R"({"success":true,"data":{"code":"OK","orderId":"id-1","orderHash":")"} +
       hash_a + R"(","removalLockedUntil":"soon"}})");
   CHECK(receipt);
   CHECK(receipt && receipt.value().order_id == "id-1");
@@ -142,7 +147,8 @@ void test_codec() {
       R"({"success":true,"removed":["id-1"],"noop":["id-2"]})");
   CHECK(removed);
   CHECK(removed && removed.value().removed.size() == 1U);
-  const auto empty = predictfun::codec::decode_remove_order_hashes_response("{}");
+  const auto empty =
+      predictfun::codec::decode_remove_order_hashes_response("{}");
   CHECK(empty);
   CHECK(empty && empty.value().removed.empty());
 }
@@ -151,14 +157,16 @@ void test_create_acknowledged() {
   boost::asio::io_context io;
   auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
   transport->push(response(
-      201, std::string{R"({"success":true,"data":{"code":"OK","orderId":"id-1","orderHash":")"} +
-               hash_a + R"("}})"));
+      201,
+      std::string{
+          R"({"success":true,"data":{"code":"OK","orderId":"id-1","orderHash":")"} +
+          hash_a + R"("}})"));
   predictfun::trading::TradingClient client(io.get_executor(), transport,
-                                             options());
+                                            options());
   std::optional<MutationResult<predictfun::CreateOrderReceipt>> result;
   client.async_create_order(
-      order_request(), predictfun::net::RequestContext::with_timeout(
-                           std::chrono::seconds{1}),
+      order_request(),
+      predictfun::net::RequestContext::with_timeout(std::chrono::seconds{1}),
       [&result](auto value) { result.emplace(std::move(value)); });
   io.run();
   CHECK(result && *result);
@@ -166,7 +174,8 @@ void test_create_acknowledged() {
   CHECK(result && *result && result->value().receipt &&
         result->value().receipt->order_hash == hash_a);
   CHECK(transport->requests.size() == 1U);
-  if (transport->requests.empty()) return;
+  if (transport->requests.empty())
+    return;
   CHECK(transport->requests[0].target == "/v1/orders");
   CHECK(transport->requests[0].method == predictfun::net::HttpMethod::post);
   CHECK(transport->requests[0].headers.size() == 2U);
@@ -179,11 +188,11 @@ void test_explicit_rejection_is_not_ambiguous() {
   auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
   transport->push(response(400, R"({"success":false})"));
   predictfun::trading::TradingClient client(io.get_executor(), transport,
-                                             options());
+                                            options());
   std::optional<MutationResult<predictfun::CreateOrderReceipt>> result;
   client.async_create_order(
-      order_request(), predictfun::net::RequestContext::with_timeout(
-                           std::chrono::seconds{1}),
+      order_request(),
+      predictfun::net::RequestContext::with_timeout(std::chrono::seconds{1}),
       [&result](auto value) { result.emplace(std::move(value)); });
   io.run();
   CHECK(result && !*result);
@@ -196,11 +205,11 @@ void test_server_failure_is_ambiguous_and_never_retried() {
   auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
   transport->push(response(503, R"({"error":"later"})"));
   predictfun::trading::TradingClient client(io.get_executor(), transport,
-                                             options());
+                                            options());
   std::optional<MutationResult<predictfun::CreateOrderReceipt>> result;
   client.async_create_order(
-      order_request(), predictfun::net::RequestContext::with_timeout(
-                           std::chrono::seconds{1}),
+      order_request(),
+      predictfun::net::RequestContext::with_timeout(std::chrono::seconds{1}),
       [&result](auto value) { result.emplace(std::move(value)); });
   io.run();
   CHECK(result && *result);
@@ -217,11 +226,11 @@ void test_transport_failure_is_ambiguous_and_never_retried() {
   transport->push(
       Error{ErrorCode::read_failure, "connection lost after write", {}});
   predictfun::trading::TradingClient client(io.get_executor(), transport,
-                                             options());
+                                            options());
   std::optional<MutationResult<predictfun::CreateOrderReceipt>> result;
   client.async_create_order(
-      order_request(), predictfun::net::RequestContext::with_timeout(
-                           std::chrono::seconds{1}),
+      order_request(),
+      predictfun::net::RequestContext::with_timeout(std::chrono::seconds{1}),
       [&result](auto value) { result.emplace(std::move(value)); });
   io.run();
   CHECK(result && *result && result->value().ambiguity);
@@ -233,11 +242,11 @@ void test_malformed_success_is_ambiguous() {
   auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
   transport->push(response(201, "{"));
   predictfun::trading::TradingClient client(io.get_executor(), transport,
-                                             options());
+                                            options());
   std::optional<MutationResult<predictfun::CreateOrderReceipt>> result;
   client.async_create_order(
-      order_request(), predictfun::net::RequestContext::with_timeout(
-                           std::chrono::seconds{1}),
+      order_request(),
+      predictfun::net::RequestContext::with_timeout(std::chrono::seconds{1}),
       [&result](auto value) { result.emplace(std::move(value)); });
   io.run();
   CHECK(result && *result && result->value().ambiguity);
@@ -247,26 +256,27 @@ void test_malformed_success_is_ambiguous() {
 void test_remove_variants() {
   boost::asio::io_context io;
   auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
-  transport->push(response(
-      200, R"({"success":true,"removed":["id-1"],"noop":[]})"));
+  transport->push(
+      response(200, R"({"success":true,"removed":["id-1"],"noop":[]})"));
   transport->push(response(200, "{}"));
   predictfun::trading::TradingClient client(io.get_executor(), transport,
-                                             options());
+                                            options());
   std::optional<MutationResult<predictfun::RemoveOrdersReceipt>> ids;
   std::optional<MutationResult<predictfun::RemoveOrdersReceipt>> hashes;
   client.async_remove_order_ids(
-      {"id-1"}, predictfun::net::RequestContext::with_timeout(
-                    std::chrono::seconds{1}),
+      {"id-1"},
+      predictfun::net::RequestContext::with_timeout(std::chrono::seconds{1}),
       [&ids](auto value) { ids.emplace(std::move(value)); });
   client.async_remove_order_hashes(
-      {hash_b}, predictfun::net::RequestContext::with_timeout(
-                    std::chrono::seconds{1}),
+      {hash_b},
+      predictfun::net::RequestContext::with_timeout(std::chrono::seconds{1}),
       [&hashes](auto value) { hashes.emplace(std::move(value)); });
   io.run();
   CHECK(ids && *ids && ids->value().acknowledged());
   CHECK(hashes && *hashes && hashes->value().acknowledged());
   CHECK(transport->requests.size() == 2U);
-  if (transport->requests.size() != 2U) return;
+  if (transport->requests.size() != 2U)
+    return;
   CHECK(transport->requests[0].target == "/v1/orders/remove");
   CHECK(transport->requests[1].target == "/orders/remove-by-hash");
 }
@@ -275,13 +285,13 @@ void test_invalid_input_stops_before_transport() {
   boost::asio::io_context io;
   auto transport = std::make_shared<ScriptedTransport>(io.get_executor());
   predictfun::trading::TradingClient client(io.get_executor(), transport,
-                                             options());
+                                            options());
   auto request = order_request();
   request.order_hash = "bad";
   std::optional<MutationResult<predictfun::CreateOrderReceipt>> result;
   client.async_create_order(
-      std::move(request), predictfun::net::RequestContext::with_timeout(
-                              std::chrono::seconds{1}),
+      std::move(request),
+      predictfun::net::RequestContext::with_timeout(std::chrono::seconds{1}),
       [&result](auto value) { result.emplace(std::move(value)); });
   io.run();
   CHECK(result && !*result);
@@ -300,6 +310,7 @@ int main() {
   test_malformed_success_is_ambiguous();
   test_remove_variants();
   test_invalid_input_stops_before_transport();
-  if (failures != 0) std::cerr << failures << " test(s) failed\n";
+  if (failures != 0)
+    std::cerr << failures << " test(s) failed\n";
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

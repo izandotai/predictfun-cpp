@@ -9,10 +9,7 @@
 namespace predictfun {
 
 enum class SelfTradePrevention { cancel_maker, cancel_taker, cancel_both };
-// The public OpenAPI currently exposes this as an object without documented
-// members.  Keep it strongly typed, but deliberately empty, so callers cannot
-// invent unsupported wire fields while the endpoint still permits `{}`.
-struct ReservedBalancePolicy {};
+enum class ReservedBalancePolicy { reject_market_order };
 enum class MutationDisposition { acknowledged, ambiguous };
 
 struct CreateOrderRequest {

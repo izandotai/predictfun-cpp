@@ -14,8 +14,6 @@ namespace {
 
 constexpr auto read_options = glz::opts{.error_on_unknown_keys = false};
 
-struct WireReservedBalancePolicy {};
-
 struct WireContractOrderWrite {
   std::string hash;
   std::string salt;
@@ -39,7 +37,7 @@ struct WireCreateOrderDataWrite {
   std::optional<std::string> slippageBps;
   std::optional<bool> isFillOrKill;
   std::optional<bool> isPostOnly;
-  std::optional<WireReservedBalancePolicy> reservedBalancePolicy;
+  std::optional<std::string> reservedBalancePolicy;
   std::optional<bool> isMinAmountOut;
   std::optional<std::string> selfTradePrevention;
   WireContractOrderWrite order;
@@ -91,12 +89,14 @@ template <class T>
 Result<T> parse_wire(std::string_view json, const DecodeLimits &limits) {
   if (json.size() > limits.max_body_bytes)
     return Error{ErrorCode::body_too_large,
-                 "response exceeds configured body limit", {}};
+                 "response exceeds configured body limit",
+                 {}};
   T value;
   const auto error = glz::read<read_options>(value, json);
   if (error)
     return Error{ErrorCode::malformed_json,
-                 "Predict.fun response contains malformed JSON", {}};
+                 "Predict.fun response contains malformed JSON",
+                 {}};
   return value;
 }
 
@@ -111,8 +111,7 @@ Result<std::uint64_t> expiration(const Uint256 &value) {
                  "order.expiration"};
   if (parsed > static_cast<std::uint64_t>(INT64_MAX))
     return Error{ErrorCode::numeric_overflow,
-                 "expiration exceeds the API int64 range",
-                 "order.expiration"};
+                 "expiration exceeds the API int64 range", "order.expiration"};
   return parsed;
 }
 
@@ -132,11 +131,19 @@ std::string self_trade_prevention(SelfTradePrevention value) {
   return {};
 }
 
+std::string reserved_balance_policy(ReservedBalancePolicy value) {
+  switch (value) {
+  case ReservedBalancePolicy::reject_market_order:
+    return "REJECT_MARKET_ORDER";
+  }
+  return {};
+}
+
 Result<std::string> write_json(const auto &value) {
   auto encoded = glz::write_json(value);
   if (!encoded)
-    return Error{ErrorCode::protocol_error,
-                 "failed to encode Predict.fun request", {}};
+    return Error{
+        ErrorCode::protocol_error, "failed to encode Predict.fun request", {}};
   return std::move(encoded.value());
 }
 
@@ -145,7 +152,8 @@ Result<std::string> write_json(const auto &value) {
 Result<std::string>
 encode_create_order_request(const CreateOrderRequest &request) {
   auto expires = expiration(request.order.expiration);
-  if (!expires) return expires.error();
+  if (!expires)
+    return expires.error();
 
   const auto side = request.order.side == ContractSide::buy ? 0U : 1U;
   std::uint32_t signature_type = 0U;
@@ -162,7 +170,8 @@ encode_create_order_request(const CreateOrderRequest &request) {
   data.isFillOrKill = request.is_fill_or_kill;
   data.isPostOnly = request.is_post_only;
   if (request.reserved_balance_policy)
-    data.reservedBalancePolicy.emplace();
+    data.reservedBalancePolicy =
+        reserved_balance_policy(*request.reserved_balance_policy);
   data.isMinAmountOut = request.is_min_amount_out;
   if (request.self_trade_prevention)
     data.selfTradePrevention =
@@ -172,9 +181,8 @@ encode_create_order_request(const CreateOrderRequest &request) {
       request.order.salt.to_string(),
       request.order.maker.to_string(),
       request.order.signer.to_string(),
-      request.order.taker
-          ? request.order.taker->to_string()
-          : "0x0000000000000000000000000000000000000000",
+      request.order.taker ? request.order.taker->to_string()
+                          : "0x0000000000000000000000000000000000000000",
       request.order.token_id.to_string(),
       request.order.maker_amount.to_string(),
       request.order.taker_amount.to_string(),
@@ -194,21 +202,26 @@ encode_remove_order_ids_request(const std::vector<std::string> &ids) {
 
 Result<std::string>
 encode_remove_order_hashes_request(const std::vector<std::string> &hashes) {
-  return write_json(
-      WireRemoveHashesWrite{WireRemoveHashesDataWrite{hashes}});
+  return write_json(WireRemoveHashesWrite{WireRemoveHashesDataWrite{hashes}});
 }
 
 Result<CreateOrderReceipt>
-decode_create_order_response(std::string_view json, const DecodeLimits &limits) {
+decode_create_order_response(std::string_view json,
+                             const DecodeLimits &limits) {
   auto wire = parse_wire<WireCreateResponse>(json, limits);
-  if (!wire) return wire.error();
+  if (!wire)
+    return wire.error();
   if (!wire.value().success || !*wire.value().success)
     return invalid("Predict.fun returned an unsuccessful response", "success");
-  if (!wire.value().data) return missing("data");
+  if (!wire.value().data)
+    return missing("data");
   const auto &data = *wire.value().data;
-  if (!data.code) return missing("data.code");
-  if (!data.orderId) return missing("data.orderId");
-  if (!data.orderHash) return missing("data.orderHash");
+  if (!data.code)
+    return missing("data.code");
+  if (!data.orderId)
+    return missing("data.orderId");
+  if (!data.orderHash)
+    return missing("data.orderHash");
   if (data.code->size() > limits.max_string_bytes ||
       data.orderId->size() > limits.max_string_bytes ||
       data.orderHash->size() > limits.max_string_bytes ||
@@ -223,11 +236,14 @@ Result<RemoveOrdersReceipt>
 decode_remove_orders_response(std::string_view json,
                               const DecodeLimits &limits) {
   auto wire = parse_wire<WireRemoveResponse>(json, limits);
-  if (!wire) return wire.error();
+  if (!wire)
+    return wire.error();
   if (!wire.value().success || !*wire.value().success)
     return invalid("Predict.fun returned an unsuccessful response", "success");
-  if (!wire.value().removed) return missing("removed");
-  if (!wire.value().noop) return missing("noop");
+  if (!wire.value().removed)
+    return missing("removed");
+  if (!wire.value().noop)
+    return missing("noop");
   if (wire.value().removed->size() + wire.value().noop->size() > 200U)
     return Error{ErrorCode::too_many_items, "too many removal results",
                  "removed"};
@@ -245,7 +261,8 @@ Result<RemoveOrdersReceipt>
 decode_remove_order_hashes_response(std::string_view json,
                                     const DecodeLimits &limits) {
   auto wire = parse_wire<WireRemoveResponse>(json, limits);
-  if (!wire) return wire.error();
+  if (!wire)
+    return wire.error();
   if (!wire.value().success && !wire.value().removed && !wire.value().noop)
     return RemoveOrdersReceipt{};
   return decode_remove_orders_response(json, limits);
